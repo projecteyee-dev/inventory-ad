@@ -6,7 +6,17 @@ import threading
 from flask import Flask, request, jsonify
 import requests
 
+
+# ============================================================
+# KYOSH ANIME DICE MONITOR
+# Complete Flask application
+# ============================================================
+
 app = Flask(__name__)
+
+# ============================================================
+# CONFIG
+# ============================================================
 
 API_KEY = os.environ.get("API_KEY", "CHANGE_THIS_SECRET_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -17,20 +27,25 @@ DISCORD_UPDATE_INTERVAL = int(os.environ.get("DISCORD_UPDATE_INTERVAL", "5"))
 ACCOUNTS_FILE = "accounts.json"
 MESSAGE_FILE = "discord_message.json"
 
+
+# ============================================================
+# GLOBAL STATE
+# ============================================================
+
 accounts = {}
 state_lock = threading.Lock()
 discord_message_id = None
 
 
 # ============================================================
-# SAVE / LOAD
+# FILE HELPERS
 # ============================================================
 
 def load_accounts():
     global accounts
 
     if not os.path.exists(ACCOUNTS_FILE):
-        print("📁 No previous accounts file found")
+        accounts = {}
         return
 
     try:
@@ -39,147 +54,150 @@ def load_accounts():
 
         if isinstance(data, dict):
             accounts = data
-            print(f"📂 Loaded {len(accounts)} saved account(s)")
+        else:
+            accounts = {}
 
     except Exception as error:
-        print("❌ Could not load accounts:")
-        print(repr(error))
+        print("[KYOSH] Failed to load accounts:", error)
+        accounts = {}
 
 
 def save_accounts():
     try:
-        with state_lock:
-            data = accounts.copy()
-
         with open(ACCOUNTS_FILE, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=2)
+            json.dump(accounts, file, indent=2)
 
     except Exception as error:
-        print("❌ Could not save accounts:")
-        print(repr(error))
+        print("[KYOSH] Failed to save accounts:", error)
 
 
 def load_discord_message():
     global discord_message_id
 
     if not os.path.exists(MESSAGE_FILE):
+        discord_message_id = None
         return
 
     try:
         with open(MESSAGE_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
 
-        discord_message_id = data.get("message_id")
+        if isinstance(data, dict):
+            discord_message_id = data.get("message_id")
+        else:
+            discord_message_id = None
 
     except Exception as error:
-        print("❌ Could not load Discord message ID:")
-        print(repr(error))
+        print("[KYOSH] Failed to load Discord message:", error)
+        discord_message_id = None
 
 
 def save_discord_message():
     try:
         with open(MESSAGE_FILE, "w", encoding="utf-8") as file:
-            json.dump({"message_id": discord_message_id}, file)
+            json.dump(
+                {
+                    "message_id": discord_message_id
+                },
+                file,
+                indent=2
+            )
 
     except Exception as error:
-        print("❌ Could not save Discord message ID:")
-        print(repr(error))
+        print("[KYOSH] Failed to save Discord message:", error)
 
 
 # ============================================================
-# HELPERS
+# AUTH
 # ============================================================
 
-def check_key(req):
-    return req.headers.get("X-API-Key") == API_KEY
+def check_key():
+    provided_key = request.headers.get("X-API-Key")
 
+    if not provided_key:
+        provided_key = request.args.get("key")
+
+    return provided_key == API_KEY
+
+
+# ============================================================
+# ACCOUNT HELPERS
+# ============================================================
 
 def account_is_online(account):
-    last_seen = float(account.get("lastSeen", 0))
-    return (time.time() - last_seen) <= HEARTBEAT_TIMEOUT
+    if not isinstance(account, dict):
+        return False
 
+    heartbeat = account.get("last_heartbeat", 0)
 
-def format_age(seconds):
     try:
-        seconds = max(0, int(seconds))
+        heartbeat = float(heartbeat)
     except (TypeError, ValueError):
-        return "—"
+        return False
 
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-
-    if hours:
-        return f"{hours}h {minutes:02d}m"
-
-    if minutes:
-        return f"{minutes}m {secs:02d}s"
-
-    return f"{secs}s"
+    return (time.time() - heartbeat) <= HEARTBEAT_TIMEOUT
 
 
-def get_accounts_snapshot():
-    with state_lock:
-        return [dict(account) for account in accounts.values()]
+def format_age(timestamp):
+    if not timestamp:
+        return "Never"
+
+    try:
+        age = max(0, int(time.time() - float(timestamp)))
+    except (TypeError, ValueError):
+        return "Unknown"
+
+    if age < 60:
+        return f"{age}s ago"
+
+    if age < 3600:
+        return f"{age // 60}m ago"
+
+    if age < 86400:
+        return f"{age // 3600}h ago"
+
+    return f"{age // 86400}d ago"
 
 
-def dashboard_stats():
-    items = get_accounts_snapshot()
-
-    online = sum(
-        1 for account in items
-        if account_is_online(account)
-    )
-
-    offline = len(items) - online
-
-    return online, offline, len(items)
-
+# ============================================================
+# INVENTORY CLEANING
+# ============================================================
 
 def clean_inventory(inventory):
     """
-    Normalizes Anime Dice inventory.
+    Keeps inventory data predictable and prevents huge payloads.
 
-    Expected:
+    Expected structure:
 
     {
-        "units": [...],
-        "gear": [...],
-        "items": [...]
+        "units": [],
+        "gear": [],
+        "items": []
     }
     """
 
     if not isinstance(inventory, dict):
-        return {
-            "units": [],
-            "gear": [],
-            "items": []
-        }
+        inventory = {}
 
-    units = inventory.get("units", [])
-    gear = inventory.get("gear", [])
-    items = inventory.get("items", [])
-
-    if not isinstance(units, list):
-        units = []
-
-    if not isinstance(gear, list):
-        gear = []
-
-    if not isinstance(items, list):
-        items = []
-
-    return {
-        "units": units[:5000],
-        "gear": gear[:5000],
-        "items": items[:5000]
+    cleaned = {
+        "units": [],
+        "gear": [],
+        "items": []
     }
 
+    for category in cleaned:
+        value = inventory.get(category, [])
 
-def inventory_counts(account):
-    inventory = clean_inventory(
-        account.get("inventory")
-    )
+        if not isinstance(value, list):
+            value = []
+
+        cleaned[category] = value[:5000]
+
+    return cleaned
+
+
+def inventory_counts(inventory):
+    inventory = clean_inventory(inventory)
 
     return {
         "units": len(inventory["units"]),
@@ -189,71 +207,157 @@ def inventory_counts(account):
 
 
 # ============================================================
+# SNAPSHOT
+# ============================================================
+
+def get_accounts_snapshot():
+    result = []
+
+    with state_lock:
+        for account_id, account in accounts.items():
+            if not isinstance(account, dict):
+                continue
+
+            account_copy = dict(account)
+
+            inventory = clean_inventory(
+                account_copy.get("inventory", {})
+            )
+
+            account_copy["inventory"] = inventory
+            account_copy["inventory_counts"] = inventory_counts(
+                inventory
+            )
+
+            account_copy["online"] = account_is_online(
+                account_copy
+            )
+
+            account_copy["age"] = format_age(
+                account_copy.get("last_heartbeat")
+            )
+
+            account_copy["account_id"] = account_id
+
+            result.append(account_copy)
+
+    result.sort(
+        key=lambda item: (
+            not item.get("online", False),
+            str(item.get("username", "")).lower()
+        )
+    )
+
+    return result
+
+
+def dashboard_stats():
+    snapshot = get_accounts_snapshot()
+
+    total = len(snapshot)
+    online = sum(
+        1 for account in snapshot
+        if account.get("online")
+    )
+
+    offline = total - online
+
+    units = 0
+    gear = 0
+    items = 0
+
+    for account in snapshot:
+        counts = account.get("inventory_counts", {})
+
+        units += int(counts.get("units", 0) or 0)
+        gear += int(counts.get("gear", 0) or 0)
+        items += int(counts.get("items", 0) or 0)
+
+    return {
+        "total": total,
+        "online": online,
+        "offline": offline,
+        "units": units,
+        "gear": gear,
+        "items": items
+    }
+
+
+# ============================================================
 # DISCORD
 # ============================================================
 
 def dashboard_text():
-    items = get_accounts_snapshot()
+    stats = dashboard_stats()
 
-    lines = []
-    online = 0
-    offline = 0
+    lines = [
+        "🎲 **KYOSH // ANIME DICE MONITOR**",
+        "",
+        f"🟢 Online: **{stats['online']}**",
+        f"🔴 Offline: **{stats['offline']}**",
+        f"👥 Accounts: **{stats['total']}**",
+        "",
+        "📦 **Inventory**",
+        f"⚔️ Units: **{stats['units']}**",
+        f"🛡️ Gear: **{stats['gear']}**",
+        f"🎁 Items: **{stats['items']}**",
+        "",
+        f"⏱️ Updated: <t:{int(time.time())}:R>"
+    ]
 
-    for account in sorted(
-        items,
-        key=lambda x: (x.get("playerName") or "").lower()
-    ):
-        is_online = account_is_online(account)
-
-        if is_online:
-            online += 1
-            icon = "🟢 ONLINE"
-        else:
-            offline += 1
-            icon = "🔴 OFFLINE"
-
-        name = account.get("playerName") or account.get("userId")
-
-        counts = inventory_counts(account)
-
-        lines.append(
-            f"{icon} **{name}** — "
-            f"Units: **{counts['units']}** | "
-            f"Gear: **{counts['gear']}** | "
-            f"Items: **{counts['items']}**"
-        )
-
-    if not lines:
-        body = "No accounts have sent a heartbeat yet."
-    else:
-        body = "\n".join(lines)
-
-    if len(body) > 3900:
-        body = body[:3860] + "\n…more accounts not shown"
-
-    return body, online, offline, len(items)
+    return "\n".join(lines)
 
 
 def discord_payload():
-    body, online, offline, total = dashboard_text()
+    stats = dashboard_stats()
 
     return {
-        "embeds": [{
-            "title": "🎲 KYOSH ANIME DICE MONITOR",
-            "description": body,
-            "color": 5763719 if offline == 0 else 15158332,
-            "footer": {
-                "text": (
-                    f"Online: {online} | "
-                    f"Offline: {offline} | "
-                    f"Total: {total}"
+        "embeds": [
+            {
+                "title": "🎲 KYOSH // ANIME DICE MONITOR",
+                "description": "Live account and inventory monitor.",
+                "color": 0x6C5CE7,
+                "fields": [
+                    {
+                        "name": "🟢 Online",
+                        "value": str(stats["online"]),
+                        "inline": True
+                    },
+                    {
+                        "name": "🔴 Offline",
+                        "value": str(stats["offline"]),
+                        "inline": True
+                    },
+                    {
+                        "name": "👥 Accounts",
+                        "value": str(stats["total"]),
+                        "inline": True
+                    },
+                    {
+                        "name": "⚔️ Units",
+                        "value": str(stats["units"]),
+                        "inline": True
+                    },
+                    {
+                        "name": "🛡️ Gear",
+                        "value": str(stats["gear"]),
+                        "inline": True
+                    },
+                    {
+                        "name": "🎁 Items",
+                        "value": str(stats["items"]),
+                        "inline": True
+                    }
+                ],
+                "footer": {
+                    "text": "KYOSH Anime Dice Monitor"
+                },
+                "timestamp": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime()
                 )
-            },
-            "timestamp": time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ",
-                time.gmtime()
-            )
-        }]
+            }
+        ]
     }
 
 
@@ -267,156 +371,107 @@ def update_discord():
 
     try:
         if discord_message_id:
-
-            url = (
+            edit_url = (
                 f"{DISCORD_WEBHOOK_URL}"
                 f"/messages/{discord_message_id}"
             )
 
             response = requests.patch(
-                url,
+                edit_url,
                 json=payload,
-                timeout=15
+                timeout=10
             )
 
-            if 200 <= response.status_code < 300:
+            if response.status_code in (200, 204):
                 return
 
-            if response.status_code == 404:
-                discord_message_id = None
-                save_discord_message()
-
-            else:
-                print(
-                    "❌ Discord PATCH error:",
-                    response.text[:1000]
-                )
-                return
-
-        url = DISCORD_WEBHOOK_URL + "?wait=true"
-
-        response = requests.post(
-            url,
-            json=payload,
-            timeout=15
-        )
-
-        if 200 <= response.status_code < 300:
-
-            data = response.json()
-
-            discord_message_id = data.get("id")
-
+            discord_message_id = None
             save_discord_message()
 
-            print(
-                "✅ Discord monitor message created/updated"
-            )
+        response = requests.post(
+            DISCORD_WEBHOOK_URL,
+            params={"wait": "true"},
+            json=payload,
+            timeout=10
+        )
+
+        if response.status_code in (200, 201):
+            try:
+                data = response.json()
+                discord_message_id = data.get("id")
+                save_discord_message()
+            except Exception:
+                pass
 
         else:
             print(
-                "❌ Discord POST error:",
-                response.text[:1000]
+                "[KYOSH] Discord update failed:",
+                response.status_code,
+                response.text[:500]
             )
 
     except Exception as error:
-        print("❌ Discord connection error:")
-        print(repr(error))
+        print("[KYOSH] Discord error:", error)
 
 
 def monitor_loop():
-    print("🚀 Discord Anime Dice monitor loop started")
-
     while True:
-
         try:
             update_discord()
-
         except Exception as error:
-            print(
-                "❌ Monitor loop error:",
-                repr(error)
-            )
+            print("[KYOSH] Monitor error:", error)
 
         time.sleep(DISCORD_UPDATE_INTERVAL)
 
 
 # ============================================================
-# WEBSITE
+# HTML DASHBOARD
 # ============================================================
 
-@app.get("/")
-def home():
-
-    return """<!doctype html>
+HTML = r"""
+<!DOCTYPE html>
 <html lang="en">
-
 <head>
-
-<meta charset="utf-8">
-
+<meta charset="UTF-8">
 <meta
     name="viewport"
-    content="width=device-width,initial-scale=1"
+    content="width=device-width, initial-scale=1.0"
 >
 
-<title>KYOSH Anime Dice Monitor</title>
+<title>KYOSH // Anime Dice Monitor</title>
 
 <style>
 
-/* =========================================================
-   ANIME DICE THEME
-   ========================================================= */
-
-:root{
-
-    --bg:#02040a;
-
-    --panel:rgba(7,12,23,.78);
-    --panel2:rgba(11,18,34,.88);
-
-    --line:rgba(118,184,255,.16);
-    --line2:rgba(137,210,255,.28);
-
-    --text:#f4f8ff;
-    --muted:#7f8da5;
-
-    --green:#73ffb0;
-    --lime:#c4ff79;
-
-    --blue:#63c9ff;
-    --cyan:#58f2ff;
-
-    --purple:#a879ff;
-    --pink:#ff76d9;
-
-    --gold:#ffd76a;
-
-    --red:#ff5f73;
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
+:root {
+    --bg: #050611;
+    --panel: rgba(12, 15, 35, 0.78);
+    --panel-2: rgba(20, 23, 50, 0.68);
+    --border: rgba(130, 105, 255, 0.24);
 
-/* =========================================================
-   RESET
-   ========================================================= */
+    --purple: #8b5cf6;
+    --blue: #38bdf8;
+    --cyan: #22d3ee;
+    --green: #4ade80;
+    --red: #fb7185;
+    --yellow: #facc15;
 
-*{
-    box-sizing:border-box;
+    --text: #f5f7ff;
+    --muted: #8991ae;
 }
 
-html{
-    min-height:100%;
-    background:#02040a;
+html,
+body {
+    width: 100%;
+    min-height: 100%;
 }
 
-body{
-
-    margin:0;
-
-    min-height:100vh;
-
-    color:var(--text);
-
+body {
     font-family:
         Inter,
         ui-sans-serif,
@@ -427,3000 +482,1845 @@ body{
         sans-serif;
 
     background:
-
         radial-gradient(
             circle at 15% 10%,
-            rgba(83,180,255,.18),
-            transparent 27%
+            rgba(124, 58, 237, 0.22),
+            transparent 30%
         ),
-
         radial-gradient(
-            circle at 85% 15%,
-            rgba(170,91,255,.16),
-            transparent 26%
+            circle at 85% 20%,
+            rgba(14, 165, 233, 0.16),
+            transparent 28%
         ),
-
         radial-gradient(
-            circle at 50% 95%,
-            rgba(48,255,171,.10),
+            circle at 50% 100%,
+            rgba(34, 211, 238, 0.10),
             transparent 35%
         ),
+        #050611;
 
-        linear-gradient(
-            180deg,
-            #030711 0%,
-            #02050d 50%,
-            #010308 100%
-        );
-
-    overflow-x:hidden;
+    color: var(--text);
+    overflow-x: hidden;
 }
 
+/* ============================================================
+   ANIMATED BACKGROUND
+   ============================================================ */
 
-/* =========================================================
-   ANIME ENERGY BACKGROUND
-   ========================================================= */
+.background {
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    overflow: hidden;
+    pointer-events: none;
+}
 
-.background{
-
-    position:fixed;
-
-    inset:0;
-
-    z-index:-10;
-
-    overflow:hidden;
-
-    pointer-events:none;
-
+.background::before {
+    content: "";
+    position: absolute;
+    inset: -50%;
     background:
-
         linear-gradient(
-            rgba(255,255,255,.018) 1px,
+            115deg,
+            transparent 40%,
+            rgba(139, 92, 246, 0.06) 50%,
+            transparent 60%
+        );
+    animation: backgroundMove 16s linear infinite;
+}
+
+.background::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(
+            rgba(255,255,255,0.018) 1px,
             transparent 1px
         ),
-
         linear-gradient(
             90deg,
-            rgba(255,255,255,.018) 1px,
+            rgba(255,255,255,0.018) 1px,
             transparent 1px
         );
-
-    background-size:
-        60px 60px;
-
-    mask-image:
-        linear-gradient(
-            to bottom,
-            black,
-            rgba(0,0,0,.35)
-        );
+    background-size: 70px 70px;
+    mask-image: linear-gradient(
+        to bottom,
+        transparent,
+        black 20%,
+        black 80%,
+        transparent
+    );
 }
 
+@keyframes backgroundMove {
+    from {
+        transform: rotate(0deg);
+    }
 
-/* large anime aura */
-
-.aura{
-
-    position:absolute;
-
-    width:700px;
-    height:700px;
-
-    border-radius:50%;
-
-    filter:blur(75px);
-
-    opacity:.13;
-
-    animation:
-        auraMove 16s ease-in-out infinite alternate;
+    to {
+        transform: rotate(360deg);
+    }
 }
 
-.aura.one{
-
-    top:-330px;
-    left:-250px;
-
-    background:
-        radial-gradient(
-            circle,
-            #4dd8ff 0%,
-            #5266ff 35%,
-            transparent 70%
-        );
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.35;
+    animation: floatOrb 10s ease-in-out infinite;
 }
 
-.aura.two{
-
-    right:-350px;
-    top:90px;
-
-    background:
-        radial-gradient(
-            circle,
-            #a855ff 0%,
-            #ff4dc4 35%,
-            transparent 70%
-        );
-
-    animation-delay:-5s;
+.orb.one {
+    width: 260px;
+    height: 260px;
+    background: #7c3aed;
+    top: 5%;
+    left: -80px;
 }
 
-.aura.three{
-
-    bottom:-420px;
-    left:25%;
-
-    background:
-        radial-gradient(
-            circle,
-            #38ffb0 0%,
-            #3b82f6 35%,
-            transparent 70%
-        );
-
-    animation-delay:-9s;
+.orb.two {
+    width: 230px;
+    height: 230px;
+    background: #0284c7;
+    right: -70px;
+    top: 30%;
+    animation-delay: -3s;
 }
 
-
-/* =========================================================
-   DICE
-   ========================================================= */
-
-.dice{
-
-    position:absolute;
-
-    width:78px;
-    height:78px;
-
-    border-radius:18px;
-
-    border:1px solid
-        rgba(147,221,255,.25);
-
-    background:
-
-        linear-gradient(
-            145deg,
-            rgba(104,185,255,.13),
-            rgba(147,87,255,.08)
-        );
-
-    box-shadow:
-
-        inset 0 0 25px
-        rgba(100,180,255,.08),
-
-        0 0 30px
-        rgba(90,180,255,.08);
-
-    backdrop-filter:blur(4px);
-
-    display:grid;
-
-    place-items:center;
-
-    color:rgba(185,232,255,.45);
-
-    font-size:25px;
-
-    transform:rotate(22deg);
-
-    animation:
-        floatDice 13s ease-in-out infinite;
+.orb.three {
+    width: 300px;
+    height: 300px;
+    background: #16a34a;
+    left: 35%;
+    bottom: -180px;
+    animation-delay: -6s;
 }
 
-.dice::before{
+@keyframes floatOrb {
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
 
-    content:"✦";
-
-    text-shadow:
-        0 0 12px currentColor,
-        0 0 28px currentColor;
+    50% {
+        transform: translate(40px, -35px) scale(1.15);
+    }
 }
 
-.dice.d1{
+/* ============================================================
+   FLOATING DICE
+   ============================================================ */
 
-    left:6%;
-    top:22%;
-
-    transform:rotate(18deg)
-        scale(.75);
-
-    animation-duration:14s;
+.dice {
+    position: fixed;
+    z-index: -5;
+    color: rgba(255,255,255,0.045);
+    font-size: 100px;
+    user-select: none;
+    pointer-events: none;
+    animation: diceFloat 12s ease-in-out infinite;
 }
 
-.dice.d2{
-
-    right:8%;
-    top:30%;
-
-    transform:rotate(-22deg)
-        scale(1.15);
-
-    animation-duration:18s;
-
-    animation-delay:-6s;
+.dice.d1 {
+    left: 4%;
+    top: 25%;
+    transform: rotate(-15deg);
 }
 
-.dice.d3{
-
-    left:13%;
-    bottom:15%;
-
-    transform:rotate(-17deg)
-        scale(.58);
-
-    animation-duration:16s;
-
-    animation-delay:-3s;
+.dice.d2 {
+    right: 5%;
+    top: 12%;
+    font-size: 140px;
+    animation-delay: -4s;
 }
 
-.dice.d4{
-
-    right:19%;
-    bottom:12%;
-
-    transform:rotate(30deg)
-        scale(.68);
-
-    animation-duration:20s;
-
-    animation-delay:-10s;
+.dice.d3 {
+    left: 45%;
+    bottom: 4%;
+    font-size: 120px;
+    animation-delay: -8s;
 }
 
-.dice.d5{
+@keyframes diceFloat {
+    0%,
+    100% {
+        transform: translateY(0) rotate(-10deg);
+    }
 
-    left:46%;
-    top:14%;
-
-    transform:rotate(12deg)
-        scale(.45);
-
-    animation-duration:12s;
-
-    animation-delay:-4s;
+    50% {
+        transform: translateY(-35px) rotate(15deg);
+    }
 }
 
-
-/* =========================================================
-   PARTICLES
-   ========================================================= */
-
-.particles{
-
-    position:absolute;
-
-    inset:0;
-}
-
-.particle{
-
-    position:absolute;
-
-    width:3px;
-    height:3px;
-
-    border-radius:50%;
-
-    background:#bcecff;
-
-    box-shadow:
-        0 0 8px #66d9ff,
-        0 0 18px rgba(88,242,255,.65);
-
-    opacity:.45;
-
-    animation:
-        particleFloat linear infinite;
-}
-
-.p1{left:5%;top:16%;animation-duration:9s}
-.p2{left:17%;top:55%;animation-duration:13s}
-.p3{left:28%;top:30%;animation-duration:11s}
-.p4{left:41%;top:70%;animation-duration:15s}
-.p5{left:54%;top:24%;animation-duration:12s}
-.p6{left:66%;top:62%;animation-duration:10s}
-.p7{left:78%;top:42%;animation-duration:14s}
-.p8{left:91%;top:75%;animation-duration:12s}
-.p9{left:35%;top:88%;animation-duration:17s}
-.p10{left:72%;top:12%;animation-duration:9s}
-
-
-/* =========================================================
-   ENERGY LINES
-   ========================================================= */
-
-.energy-line{
-
-    position:absolute;
-
-    height:1px;
-
-    width:55%;
-
-    background:
-        linear-gradient(
-            90deg,
-            transparent,
-            rgba(100,216,255,.32),
-            rgba(177,110,255,.35),
-            transparent
-        );
-
-    filter:
-        drop-shadow(
-            0 0 8px
-            rgba(100,216,255,.25)
-        );
-
-    transform:rotate(-25deg);
-
-    animation:
-        lineMove 10s linear infinite;
-}
-
-.energy-line.l1{
-    top:28%;
-    left:-10%;
-}
-
-.energy-line.l2{
-    top:67%;
-    right:-12%;
-
-    transform:
-        rotate(23deg);
-
-    animation-delay:-4s;
-}
-
-
-/* =========================================================
-   MAIN WRAPPER
-   ========================================================= */
-
-.wrapper{
-
-    position:relative;
-
-    width:min(1450px,94%);
-
-    margin:0 auto;
-
-    padding:
-        30px 0 45px;
-}
-
-
-/* top energy bar */
-
-.wrapper::before{
-
-    content:"";
-
-    position:absolute;
-
-    left:0;
-    right:0;
-    top:0;
-
-    height:2px;
-
-    border-radius:99px;
-
-    background:
-
-        linear-gradient(
-            90deg,
-            transparent,
-            var(--cyan),
-            var(--purple),
-            var(--green),
-            transparent
-        );
-
-    box-shadow:
-
-        0 0 18px
-        rgba(88,242,255,.45);
-}
-
-
-/* =========================================================
+/* ============================================================
    HEADER
-   ========================================================= */
+   ============================================================ */
 
-.header{
+.header {
+    width: min(1400px, calc(100% - 30px));
+    margin: 20px auto 0;
 
-    display:flex;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
 
-    align-items:center;
+    padding: 18px 22px;
 
-    justify-content:space-between;
-
-    gap:20px;
-
-    margin-bottom:24px;
-
-    padding-top:10px;
-}
-
-.brand{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:15px;
-}
-
-
-/* anime dice logo */
-
-.logo{
-
-    position:relative;
-
-    width:55px;
-    height:55px;
-
-    flex:0 0 55px;
-
-    display:grid;
-
-    place-items:center;
-
-    border-radius:17px;
+    border: 1px solid var(--border);
+    border-radius: 22px;
 
     background:
-
         linear-gradient(
-            145deg,
-            rgba(111,226,255,.25),
-            rgba(157,92,255,.24)
+            135deg,
+            rgba(20, 22, 48, 0.88),
+            rgba(8, 10, 25, 0.74)
         );
 
-    border:
-        1px solid
-        rgba(145,220,255,.5);
+    backdrop-filter: blur(20px);
 
     box-shadow:
-
-        inset 0 0 20px
-        rgba(95,200,255,.12),
-
-        0 0 0 5px
-        rgba(91,193,255,.035),
-
-        0 0 35px
-        rgba(86,188,255,.17);
-
-    transform:rotate(-7deg);
-
-    animation:
-        logoFloat 5s ease-in-out infinite;
+        0 20px 70px rgba(0, 0, 0, 0.35),
+        inset 0 1px rgba(255,255,255,0.05);
 }
 
-.logo::before{
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
 
-    content:"";
+.logo {
+    width: 48px;
+    height: 48px;
 
-    width:31px;
-    height:31px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
-    border-radius:8px;
+    border-radius: 15px;
 
-    border:
-        2px solid
-        rgba(206,244,255,.85);
+    font-size: 25px;
 
     background:
-
-        radial-gradient(
-            circle at 30% 28%,
-            #e7fbff 0 7%,
-            transparent 8%
-        ),
-
-        radial-gradient(
-            circle at 70% 70%,
-            #b4ebff 0 7%,
-            transparent 8%
-        ),
-
         linear-gradient(
-            145deg,
-            rgba(89,204,255,.55),
-            rgba(137,79,255,.55)
+            135deg,
+            #7c3aed,
+            #2563eb
         );
 
     box-shadow:
-        0 0 18px
-        rgba(88,242,255,.35);
+        0 0 25px rgba(124, 58, 237, 0.5);
+
+    transform: rotate(-6deg);
 }
 
-.logo::after{
-
-    content:"";
-
-    position:absolute;
-
-    inset:-9px;
-
-    border-radius:22px;
-
-    border:
-        1px solid
-        rgba(135,217,255,.14);
-
-    animation:
-        logoRing 4s linear infinite;
+.brand-text h1 {
+    font-size: 18px;
+    letter-spacing: 1.5px;
 }
 
-
-/* =========================================================
-   TITLE
-   ========================================================= */
-
-h1{
-
-    margin:0;
-
-    font-size:25px;
-
-    letter-spacing:-.8px;
-
-    background:
-
-        linear-gradient(
-            90deg,
-            #ffffff,
-            #a8eaff 42%,
-            #d4a7ff 78%,
-            #b7ffcf
-        );
-
-    -webkit-background-clip:text;
-    background-clip:text;
-
-    color:transparent;
-
-    text-shadow:
-        0 0 25px
-        rgba(97,199,255,.12);
+.brand-text p {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 3px;
 }
 
-.subtitle{
+.live {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 
-    color:#78869c;
+    padding: 9px 13px;
 
-    font-size:13px;
+    border-radius: 999px;
 
-    margin-top:5px;
+    border: 1px solid rgba(74, 222, 128, 0.25);
+
+    background: rgba(74, 222, 128, 0.08);
+
+    color: #86efac;
+
+    font-size: 12px;
+    font-weight: 700;
 }
 
+.live-dot {
+    width: 8px;
+    height: 8px;
 
-/* =========================================================
-   LIVE
-   ========================================================= */
+    border-radius: 50%;
 
-.live{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:8px;
-
-    padding:
-        10px 15px;
-
-    border:
-        1px solid
-        rgba(115,255,176,.22);
-
-    background:
-        rgba(7,16,25,.64);
-
-    border-radius:999px;
-
-    color:#a6b7c8;
-
-    font-size:11px;
-
-    letter-spacing:.8px;
-
-    font-weight:700;
+    background: var(--green);
 
     box-shadow:
-        0 0 25px
-        rgba(91,255,176,.05);
+        0 0 8px var(--green);
 
-    backdrop-filter:blur(10px);
+    animation: pulse 1.6s infinite;
 }
 
-.live-dot{
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
 
-    width:8px;
-    height:8px;
-
-    border-radius:50%;
-
-    background:var(--green);
-
-    box-shadow:
-        0 0 8px var(--green),
-        0 0 18px rgba(115,255,176,.55);
-
-    animation:
-        pulse 1.7s infinite;
+    50% {
+        opacity: 0.45;
+        transform: scale(0.75);
+    }
 }
 
+/* ============================================================
+   MAIN
+   ============================================================ */
 
-/* =========================================================
+.container {
+    width: min(1400px, calc(100% - 30px));
+    margin: 24px auto 50px;
+}
+
+/* ============================================================
    STATS
-   ========================================================= */
+   ============================================================ */
 
-.stats{
-
-    display:grid;
-
+.stats {
+    display: grid;
     grid-template-columns:
-        repeat(3,1fr);
+        repeat(6, minmax(0, 1fr));
 
-    gap:13px;
+    gap: 14px;
 
-    margin-bottom:18px;
+    margin-bottom: 18px;
 }
 
-.stat{
+.stat {
+    position: relative;
+    overflow: hidden;
 
-    position:relative;
+    padding: 18px;
 
-    overflow:hidden;
+    border: 1px solid var(--border);
+    border-radius: 18px;
 
     background:
-
         linear-gradient(
             145deg,
-            rgba(12,24,42,.80),
-            rgba(5,11,21,.84)
+            rgba(20, 23, 50, 0.84),
+            rgba(8, 10, 24, 0.72)
         );
 
-    border:
-        1px solid
-        var(--line);
-
-    border-radius:17px;
-
-    padding:18px 20px;
+    backdrop-filter: blur(15px);
 
     box-shadow:
-        0 18px 50px
-        rgba(0,0,0,.30),
+        0 15px 40px rgba(0,0,0,0.2);
+}
 
-        inset 0 0 25px
-        rgba(94,177,255,.025);
+.stat::after {
+    content: "";
+    position: absolute;
 
-    backdrop-filter:blur(14px);
+    width: 80px;
+    height: 80px;
+
+    right: -30px;
+    bottom: -30px;
+
+    border-radius: 50%;
+
+    background: var(--purple);
+    filter: blur(35px);
+
+    opacity: 0.15;
+}
+
+.stat-label {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.stat-value {
+    margin-top: 8px;
+
+    font-size: 28px;
+    font-weight: 800;
+}
+
+.stat.online .stat-value {
+    color: #4ade80;
+}
+
+.stat.offline .stat-value {
+    color: #fb7185;
+}
+
+.stat.units .stat-value {
+    color: #a78bfa;
+}
+
+.stat.gear .stat-value {
+    color: #38bdf8;
+}
+
+.stat.items .stat-value {
+    color: #facc15;
+}
+
+/* ============================================================
+   SECTION HEADER
+   ============================================================ */
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    margin: 22px 3px 12px;
+}
+
+.section-title {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.refresh {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+/* ============================================================
+   ACCOUNT GRID
+   ============================================================ */
+
+.accounts {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fill, minmax(300px, 1fr));
+
+    gap: 15px;
+}
+
+.account {
+    position: relative;
+    overflow: hidden;
+
+    border: 1px solid var(--border);
+    border-radius: 20px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(19, 22, 48, 0.88),
+            rgba(8, 10, 25, 0.78)
+        );
+
+    backdrop-filter: blur(16px);
+
+    box-shadow:
+        0 20px 50px rgba(0,0,0,0.22);
 
     transition:
-        transform .2s ease,
-        border-color .2s ease;
+        transform 0.25s ease,
+        border-color 0.25s ease,
+        box-shadow 0.25s ease;
 }
 
-.stat:hover{
-
-    transform:
-        translateY(-3px);
+.account:hover {
+    transform: translateY(-4px);
 
     border-color:
-        rgba(109,207,255,.30);
-}
-
-.stat::after{
-
-    content:"";
-
-    position:absolute;
-
-    width:120px;
-    height:120px;
-
-    right:-65px;
-    top:-70px;
-
-    border-radius:50%;
-
-    background:
-        radial-gradient(
-            circle,
-            rgba(92,205,255,.14),
-            transparent 68%
-        );
-}
-
-.stat-label{
-
-    color:#708097;
-
-    font-size:10px;
-
-    margin-bottom:7px;
-
-    text-transform:uppercase;
-
-    letter-spacing:1px;
-
-    font-weight:800;
-}
-
-.stat-value{
-
-    font-size:28px;
-
-    font-weight:850;
-
-    color:#f2f8ff;
-
-    text-shadow:
-        0 0 18px
-        rgba(114,205,255,.08);
-}
-
-
-/* =========================================================
-   TABLE
-   ========================================================= */
-
-.table{
-
-    border:
-        1px solid
-        var(--line);
-
-    background:
-        rgba(4,9,17,.72);
-
-    border-radius:19px;
-
-    overflow:hidden;
+        rgba(139, 92, 246, 0.55);
 
     box-shadow:
-
-        0 30px 90px
-        rgba(0,0,0,.42),
-
-        0 0 0 1px
-        rgba(93,187,255,.025);
-
-    backdrop-filter:
-        blur(18px);
+        0 25px 70px rgba(0,0,0,0.32),
+        0 0 35px rgba(124,58,237,0.08);
 }
 
-.table-scroll{
-    overflow-x:auto;
-}
+.account::before {
+    content: "";
 
-.table-head,
-.account{
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
 
-    display:grid;
-
-    grid-template-columns:
-        minmax(210px,2fr)
-        120px
-        minmax(180px,1.7fr)
-        110px;
-
-    align-items:center;
-
-    min-width:760px;
-}
-
-.table-head{
-
-    height:50px;
-
-    padding:
-        0 18px;
-
-    color:#65748b;
+    height: 2px;
 
     background:
-        linear-gradient(
-            180deg,
-            rgba(14,27,45,.90),
-            rgba(5,12,22,.90)
-        );
-
-    border-bottom:
-        1px solid
-        var(--line);
-
-    font-size:10px;
-
-    font-weight:800;
-
-    text-transform:uppercase;
-
-    letter-spacing:1px;
-}
-
-.account{
-
-    padding:
-        14px 18px;
-
-    min-height:76px;
-
-    border-bottom:
-        1px solid
-        rgba(105,160,210,.09);
-
-    transition:
-        background .18s ease,
-        transform .18s ease;
-}
-
-.account:last-child{
-    border-bottom:0;
-}
-
-.account:hover{
-
-    background:
-
         linear-gradient(
             90deg,
-            rgba(73,163,255,.07),
-            rgba(167,97,255,.045),
+            transparent,
+            var(--purple),
+            var(--cyan),
             transparent
         );
 }
 
-
-/* =========================================================
-   ACCOUNT
-   ========================================================= */
-
-.user{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:11px;
-
-    min-width:0;
+.account-body {
+    padding: 18px;
 }
 
-.avatar{
+.account-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 
-    width:38px;
-    height:38px;
+    gap: 10px;
+}
 
-    flex:0 0 38px;
+.account-name {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
 
-    border-radius:13px;
+.avatar {
+    width: 42px;
+    height: 42px;
 
-    display:grid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
-    place-items:center;
+    border-radius: 14px;
+
+    font-weight: 800;
 
     background:
-
-        linear-gradient(
-            145deg,
-            rgba(100,221,255,.32),
-            rgba(143,86,255,.28)
-        );
-
-    border:
-        1px solid
-        rgba(145,220,255,.38);
-
-    color:#dff7ff;
-
-    font-size:12px;
-
-    font-weight:900;
-
-    box-shadow:
-        0 0 18px
-        rgba(83,186,255,.10);
-}
-
-.username{
-
-    overflow:hidden;
-
-    text-overflow:ellipsis;
-
-    white-space:nowrap;
-
-    font-weight:700;
-
-    font-size:14px;
-}
-
-.userid{
-
-    color:#536279;
-
-    font-size:10px;
-
-    margin-top:2px;
-}
-
-
-/* =========================================================
-   STATUS
-   ========================================================= */
-
-.status{
-
-    display:inline-flex;
-
-    align-items:center;
-
-    gap:7px;
-
-    font-size:12px;
-
-    font-weight:700;
-}
-
-.status-dot{
-
-    width:7px;
-    height:7px;
-
-    border-radius:50%;
-}
-
-.online .status-dot{
-
-    background:var(--green);
-
-    box-shadow:
-        0 0 8px var(--green),
-        0 0 15px rgba(115,255,176,.4);
-}
-
-.online .status{
-    color:#a8f7c5;
-}
-
-.offline .status-dot{
-
-    background:var(--red);
-
-    box-shadow:
-        0 0 8px rgba(255,95,115,.35);
-}
-
-.offline .status{
-    color:#667286;
-}
-
-
-/* =========================================================
-   INVENTORY
-   ========================================================= */
-
-.inventory-summary{
-
-    display:flex;
-
-    gap:7px;
-
-    flex-wrap:wrap;
-}
-
-.category-pill{
-
-    border:
-        1px solid
-        rgba(120,180,220,.16);
-
-    background:
-        rgba(12,24,39,.72);
-
-    border-radius:999px;
-
-    padding:
-        6px 9px;
-
-    font-size:10px;
-
-    font-weight:800;
-
-    color:#d6e1ed;
-}
-
-.category-pill.units{
-    color:var(--lime);
-}
-
-.category-pill.gear{
-    color:var(--purple);
-}
-
-.category-pill.items{
-    color:var(--blue);
-}
-
-.inventory-btn{
-
-    border:
-        1px solid
-        rgba(115,184,235,.17);
-
-    background:
-
         linear-gradient(
             135deg,
-            rgba(18,36,58,.78),
-            rgba(8,17,29,.84)
+            rgba(124,58,237,0.35),
+            rgba(14,165,233,0.25)
         );
 
-    color:#e5eff9;
-
-    border-radius:11px;
-
-    padding:
-        9px 12px;
-
-    cursor:pointer;
-
-    font:inherit;
-
-    transition:
-        .15s ease;
-
-    width:100%;
-
-    text-align:left;
-
-    box-shadow:
-        inset 0 0 20px
-        rgba(89,190,255,.02);
+    border:
+        1px solid rgba(139,92,246,0.3);
 }
 
-.inventory-btn:hover{
+.username {
+    font-weight: 800;
+    font-size: 14px;
+}
+
+.account-id {
+    color: var(--muted);
+    font-size: 10px;
+    margin-top: 3px;
+}
+
+.status {
+    padding: 6px 9px;
+
+    border-radius: 999px;
+
+    font-size: 10px;
+    font-weight: 800;
+
+    text-transform: uppercase;
+}
+
+.status.online {
+    color: #86efac;
+    background: rgba(74,222,128,0.1);
+    border: 1px solid rgba(74,222,128,0.18);
+}
+
+.status.offline {
+    color: #fda4af;
+    background: rgba(251,113,133,0.1);
+    border: 1px solid rgba(251,113,133,0.18);
+}
+
+.meta {
+    margin-top: 15px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.inventory-preview {
+    display: grid;
+    grid-template-columns:
+        repeat(3, 1fr);
+
+    gap: 8px;
+
+    margin-top: 14px;
+}
+
+.inv-card {
+    padding: 11px 8px;
+
+    text-align: center;
+
+    border-radius: 13px;
 
     background:
+        rgba(255,255,255,0.025);
 
+    border:
+        1px solid rgba(255,255,255,0.06);
+}
+
+.inv-icon {
+    font-size: 15px;
+}
+
+.inv-number {
+    margin-top: 4px;
+
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.inv-label {
+    margin-top: 2px;
+
+    color: var(--muted);
+
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.view-btn {
+    width: 100%;
+
+    margin-top: 14px;
+
+    padding: 11px;
+
+    border: 1px solid rgba(139,92,246,0.25);
+    border-radius: 12px;
+
+    color: white;
+
+    background:
         linear-gradient(
             135deg,
-            rgba(29,60,91,.85),
-            rgba(14,25,43,.92)
+            rgba(124,58,237,0.18),
+            rgba(14,165,233,0.10)
         );
 
-    border-color:
-        rgba(124,216,255,.40);
+    cursor: pointer;
 
-    transform:
-        translateY(-1px);
+    font-size: 11px;
+    font-weight: 800;
 
-    box-shadow:
-        0 0 20px
-        rgba(81,184,255,.08);
+    transition: 0.2s;
 }
 
-.inventory-preview{
+.view-btn:hover {
+    border-color: rgba(139,92,246,0.6);
 
-    color:#64758b;
-
-    font-size:10px;
-
-    margin-top:4px;
-
-    white-space:nowrap;
-
-    overflow:hidden;
-
-    text-overflow:ellipsis;
+    background:
+        linear-gradient(
+            135deg,
+            rgba(124,58,237,0.3),
+            rgba(14,165,233,0.18)
+        );
 }
 
+/* ============================================================
+   EMPTY
+   ============================================================ */
 
-/* =========================================================
-   AGE
-   ========================================================= */
+.empty {
+    padding: 70px 20px;
 
-.age{
+    text-align: center;
 
-    color:#69778b;
+    border: 1px dashed rgba(139,92,246,0.22);
+    border-radius: 20px;
 
-    font-size:12px;
+    background: rgba(255,255,255,0.018);
 }
 
+.empty-icon {
+    font-size: 45px;
+    margin-bottom: 12px;
+}
 
-/* =========================================================
+.empty-title {
+    font-weight: 800;
+}
+
+.empty-text {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+/* ============================================================
    MODAL
-   ========================================================= */
+   ============================================================ */
 
-.modal{
+.modal {
+    position: fixed;
+    inset: 0;
 
-    position:fixed;
+    display: none;
+    align-items: center;
+    justify-content: center;
 
-    inset:0;
-
-    z-index:1000;
-
-    display:none;
-
-    align-items:center;
-
-    justify-content:center;
-
-    padding:20px;
+    padding: 20px;
 
     background:
-        rgba(0,3,9,.82);
+        rgba(2, 3, 12, 0.78);
 
-    backdrop-filter:
-        blur(13px);
+    backdrop-filter: blur(12px);
+
+    z-index: 100;
 }
 
-.modal.open{
-    display:flex;
+.modal.show {
+    display: flex;
 }
 
-.modal-card{
+.modal-box {
+    width: min(1000px, 100%);
 
-    width:min(900px,96vw);
+    max-height: 90vh;
 
-    max-height:88vh;
+    display: flex;
+    flex-direction: column;
 
-    overflow:hidden;
+    border:
+        1px solid rgba(139,92,246,0.35);
+
+    border-radius: 24px;
 
     background:
-
         linear-gradient(
             145deg,
-            rgba(13,27,46,.96),
-            rgba(4,11,21,.97)
+            rgba(18,21,48,0.97),
+            rgba(6,8,22,0.97)
         );
 
-    border:
-        1px solid
-        rgba(110,196,255,.25);
-
-    border-radius:19px;
-
     box-shadow:
+        0 30px 100px rgba(0,0,0,0.6),
+        0 0 60px rgba(124,58,237,0.08);
 
-        0 35px 100px
-        rgba(0,0,0,.72),
-
-        0 0 50px
-        rgba(73,180,255,.08);
+    overflow: hidden;
 }
 
-.modal-head{
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:15px;
-
-    padding:
-        16px 18px;
+    padding: 18px 20px;
 
     border-bottom:
-        1px solid
-        var(--line);
+        1px solid rgba(255,255,255,0.06);
 }
 
-.modal-title{
-
-    font-weight:800;
-
-    font-size:16px;
+.modal-title {
+    font-weight: 800;
 }
 
-.modal-subtitle{
+.close {
+    width: 34px;
+    height: 34px;
 
-    color:var(--muted);
+    border: 0;
+    border-radius: 10px;
 
-    font-size:11px;
+    color: white;
 
-    margin-top:3px;
+    background: rgba(255,255,255,0.06);
+
+    cursor: pointer;
+
+    font-size: 18px;
 }
 
-.modal-close{
-
-    border:
-        1px solid
-        rgba(130,184,235,.22);
-
-    background:
-        rgba(17,33,52,.85);
-
-    color:#dfeaf5;
-
-    border-radius:9px;
-
-    width:34px;
-    height:34px;
-
-    cursor:pointer;
-
-    font-size:18px;
-
-    transition:.15s;
+.close:hover {
+    background: rgba(251,113,133,0.15);
 }
 
-.modal-close:hover{
+.tabs {
+    display: flex;
+    gap: 8px;
+
+    padding: 14px 20px;
+
+    border-bottom:
+        1px solid rgba(255,255,255,0.05);
+}
+
+.tab {
+    padding: 8px 13px;
+
+    border: 1px solid transparent;
+    border-radius: 10px;
+
+    background: transparent;
+
+    color: var(--muted);
+
+    cursor: pointer;
+
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.tab.active {
+    color: white;
 
     border-color:
-        rgba(105,211,255,.45);
+        rgba(139,92,246,0.3);
 
     background:
-        rgba(27,53,78,.95);
+        rgba(124,58,237,0.15);
 }
 
+.modal-content {
+    padding: 18px 20px;
 
-/* =========================================================
-   INVENTORY LIST
-   ========================================================= */
-
-.inventory-list{
-
-    max-height:70vh;
-
-    overflow:auto;
-
-    padding:12px;
+    overflow-y: auto;
 }
 
-.section{
-
-    margin-bottom:18px;
-
-    border:
-        1px solid
-        rgba(105,160,210,.12);
-
-    border-radius:13px;
-
-    overflow:hidden;
-
-    background:
-        rgba(3,10,18,.40);
-}
-
-.section-title{
-
-    padding:
-        12px 13px;
-
-    font-size:12px;
-
-    font-weight:900;
-
-    letter-spacing:.7px;
-
-    text-transform:uppercase;
-
-    background:
-        rgba(15,30,48,.74);
-
-    border-bottom:
-        1px solid
-        rgba(105,160,210,.11);
-}
-
-.section-title.units{
-    color:var(--lime);
-}
-
-.section-title.gear{
-    color:var(--purple);
-}
-
-.section-title.items{
-    color:var(--blue);
-}
-
-.inventory-item{
-
-    display:grid;
+.inventory-grid {
+    display: grid;
 
     grid-template-columns:
-        minmax(180px,1fr)
-        90px
-        minmax(150px,1fr);
+        repeat(auto-fill, minmax(160px, 1fr));
 
-    gap:12px;
-
-    align-items:center;
-
-    padding:
-        11px 13px;
-
-    border-bottom:
-        1px solid
-        rgba(105,160,210,.08);
+    gap: 10px;
 }
 
-.inventory-item:last-child{
-    border-bottom:0;
-}
+.item {
+    min-height: 90px;
 
-.item-name{
+    padding: 13px;
 
-    font-weight:800;
+    border:
+        1px solid rgba(255,255,255,0.07);
 
-    font-size:12px;
-}
-
-.item-meta{
-
-    color:#64758a;
-
-    font-size:10px;
-
-    margin-top:3px;
-}
-
-.item-amount{
-
-    color:#e9f5ff;
-
-    font-size:12px;
-
-    font-weight:900;
-
-    text-align:center;
-}
-
-.item-details{
-
-    color:#91a3b6;
-
-    font-size:10px;
-
-    text-align:right;
-}
-
-
-/* =========================================================
-   EMPTY / FOOTER
-   ========================================================= */
-
-.empty{
-
-    padding:70px 20px;
-
-    text-align:center;
-
-    color:var(--muted);
-}
-
-.footer{
-
-    padding:
-        14px 18px;
-
-    color:#56657a;
-
-    font-size:11px;
-
-    border-top:
-        1px solid
-        var(--line);
+    border-radius: 14px;
 
     background:
-        rgba(3,9,16,.78);
+        rgba(255,255,255,0.025);
+
+    transition: 0.2s;
 }
 
+.item:hover {
+    transform: translateY(-2px);
 
-/* =========================================================
-   SCROLLBAR
-   ========================================================= */
-
-::-webkit-scrollbar{
-    width:7px;
-    height:7px;
-}
-
-::-webkit-scrollbar-track{
-    background:#030711;
-}
-
-::-webkit-scrollbar-thumb{
+    border-color:
+        rgba(139,92,246,0.35);
 
     background:
-        linear-gradient(
-            180deg,
-            #3d7da0,
-            #624b8e
-        );
-
-    border-radius:99px;
+        rgba(124,58,237,0.07);
 }
 
+.item-name {
+    font-size: 12px;
+    font-weight: 800;
 
-/* =========================================================
-   ANIMATIONS
-   ========================================================= */
-
-@keyframes pulse{
-
-    0%,100%{
-        transform:scale(1);
-        opacity:1;
-    }
-
-    50%{
-        transform:scale(1.25);
-        opacity:.72;
-    }
+    word-break: break-word;
 }
 
-@keyframes auraMove{
+.item-detail {
+    color: var(--muted);
 
-    0%{
-        transform:
-            translate3d(-20px,0,0)
-            scale(1);
-    }
+    font-size: 10px;
 
-    50%{
-        transform:
-            translate3d(80px,50px,0)
-            scale(1.08);
-    }
+    margin-top: 7px;
 
-    100%{
-        transform:
-            translate3d(-40px,100px,0)
-            scale(.96);
+    line-height: 1.5;
+}
+
+.no-items {
+    padding: 40px;
+
+    text-align: center;
+
+    color: var(--muted);
+
+    font-size: 12px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 1100px) {
+    .stats {
+        grid-template-columns:
+            repeat(3, 1fr);
     }
 }
 
-@keyframes floatDice{
-
-    0%{
-        margin-top:0;
+@media (max-width: 700px) {
+    .header {
+        margin-top: 10px;
+        padding: 14px;
     }
 
-    50%{
-        margin-top:-28px;
+    .container {
+        width: min(100% - 20px, 1400px);
+        margin-top: 15px;
     }
 
-    100%{
-        margin-top:0;
-    }
-}
-
-@keyframes particleFloat{
-
-    0%{
-        transform:
-            translateY(30px)
-            scale(.7);
-
-        opacity:0;
+    .stats {
+        grid-template-columns:
+            repeat(2, 1fr);
     }
 
-    20%{
-        opacity:.55;
+    .accounts {
+        grid-template-columns:
+            1fr;
     }
 
-    50%{
-        transform:
-            translateY(-50px)
-            scale(1.2);
-
-        opacity:.8;
+    .brand-text h1 {
+        font-size: 14px;
     }
 
-    80%{
-        opacity:.35;
+    .live {
+        padding: 7px 9px;
     }
 
-    100%{
-        transform:
-            translateY(-110px)
-            scale(.5);
-
-        opacity:0;
+    .inventory-grid {
+        grid-template-columns:
+            repeat(2, 1fr);
     }
 }
 
-@keyframes lineMove{
-
-    0%{
-        opacity:0;
-        transform:
-            translateX(-30%)
-            rotate(-25deg);
+@media (max-width: 430px) {
+    .stats {
+        gap: 8px;
     }
 
-    20%{
-        opacity:.7;
+    .stat {
+        padding: 13px;
     }
 
-    80%{
-        opacity:.4;
+    .stat-value {
+        font-size: 22px;
     }
 
-    100%{
-        opacity:0;
-        transform:
-            translateX(100%)
-            rotate(-25deg);
-    }
-}
-
-@keyframes logoFloat{
-
-    0%,100%{
-        transform:
-            rotate(-7deg)
-            translateY(0);
+    .logo {
+        width: 42px;
+        height: 42px;
     }
 
-    50%{
-        transform:
-            rotate(-2deg)
-            translateY(-5px);
-    }
-}
-
-@keyframes logoRing{
-
-    from{
-        transform:rotate(0deg);
-    }
-
-    to{
-        transform:rotate(360deg);
-    }
-}
-
-
-/* =========================================================
-   MOBILE
-   ========================================================= */
-
-@media(max-width:800px){
-
-    .wrapper{
-        width:96%;
-        padding-top:20px;
-    }
-
-    .stats{
-        grid-template-columns:1fr;
-    }
-
-    .header{
-        align-items:flex-start;
-    }
-
-    .live{
-        display:none;
-    }
-
-    .dice.d5{
-        display:none;
-    }
-}
-
-@media(max-width:500px){
-
-    .wrapper{
-        width:94%;
-    }
-
-    h1{
-        font-size:20px;
-    }
-
-    .subtitle{
-        font-size:11px;
-    }
-
-    .logo{
-        width:46px;
-        height:46px;
-        flex-basis:46px;
-    }
-
-    .stat{
-        padding:15px 16px;
-    }
-
-    .stat-value{
-        font-size:24px;
-    }
-
-    .dice{
-        opacity:.45;
+    .live {
+        font-size: 9px;
     }
 }
 
 </style>
-
 </head>
-
 
 <body>
 
-
-<!-- ========================================================
-     ANIME BACKGROUND
-     ======================================================== -->
-
 <div class="background">
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="orb three"></div>
 
-    <div class="aura one"></div>
-    <div class="aura two"></div>
-    <div class="aura three"></div>
-
-    <div class="energy-line l1"></div>
-    <div class="energy-line l2"></div>
-
-
-    <div class="dice d1"></div>
-    <div class="dice d2"></div>
-    <div class="dice d3"></div>
-    <div class="dice d4"></div>
-    <div class="dice d5"></div>
-
-
-    <div class="particles">
-
-        <div class="particle p1"></div>
-        <div class="particle p2"></div>
-        <div class="particle p3"></div>
-        <div class="particle p4"></div>
-        <div class="particle p5"></div>
-        <div class="particle p6"></div>
-        <div class="particle p7"></div>
-        <div class="particle p8"></div>
-        <div class="particle p9"></div>
-        <div class="particle p10"></div>
-
-    </div>
-
+    <div class="dice d1">⚄</div>
+    <div class="dice d2">⚅</div>
+    <div class="dice d3">⚂</div>
 </div>
 
+<header class="header">
 
-<div class="wrapper">
+    <div class="brand">
 
-
-    <!-- ====================================================
-         HEADER
-         ==================================================== -->
-
-    <div class="header">
-
-        <div class="brand">
-
-            <div class="logo"></div>
-
-            <div>
-
-                <h1>
-                    KYOSH ANIME DICE MONITOR
-                </h1>
-
-                <div class="subtitle">
-                    Live Anime Dice account and inventory monitor
-                </div>
-
-            </div>
-
+        <div class="logo">
+            🎲
         </div>
 
-
-        <div class="live">
-
-            <span class="live-dot"></span>
-
-            LIVE MONITOR
-
+        <div class="brand-text">
+            <h1>KYOSH // ANIME DICE</h1>
+            <p>Live Account & Inventory Monitor</p>
         </div>
 
     </div>
 
-
-    <!-- ====================================================
-         STATS
-         ==================================================== -->
-
-    <div class="stats">
-
-        <div class="stat">
-
-            <div class="stat-label">
-                ONLINE
-            </div>
-
-            <div
-                class="stat-value"
-                id="online"
-            >
-                0
-            </div>
-
-        </div>
-
-
-        <div class="stat">
-
-            <div class="stat-label">
-                OFFLINE
-            </div>
-
-            <div
-                class="stat-value"
-                id="offline"
-            >
-                0
-            </div>
-
-        </div>
-
-
-        <div class="stat">
-
-            <div class="stat-label">
-                TOTAL ACCOUNTS
-            </div>
-
-            <div
-                class="stat-value"
-                id="total"
-            >
-                0
-            </div>
-
-        </div>
-
+    <div class="live">
+        <span class="live-dot"></span>
+        SYSTEM ONLINE
     </div>
 
+</header>
 
-    <!-- ====================================================
-         ACCOUNT TABLE
-         ==================================================== -->
+<main class="container">
 
-    <div class="table">
+    <section class="stats">
 
-        <div class="table-scroll">
-
-            <div class="table-head">
-
-                <div>
-                    ACCOUNT
-                </div>
-
-                <div>
-                    STATUS
-                </div>
-
-                <div>
-                    INVENTORY
-                </div>
-
-                <div>
-                    LAST SEEN
-                </div>
-
+        <div class="stat">
+            <div class="stat-label">
+                Accounts
             </div>
 
+            <div
+                class="stat-value"
+                id="statTotal"
+            >
+                0
+            </div>
+        </div>
 
-            <div id="accounts">
-
-                <div class="empty">
-                    Loading accounts...
-                </div>
-
+        <div class="stat online">
+            <div class="stat-label">
+                Online
             </div>
 
+            <div
+                class="stat-value"
+                id="statOnline"
+            >
+                0
+            </div>
         </div>
 
+        <div class="stat offline">
+            <div class="stat-label">
+                Offline
+            </div>
 
-        <div class="footer">
-
-            ✦ Auto-refreshing every 2 seconds
-            • KYOSH Anime Dice Monitor
-
+            <div
+                class="stat-value"
+                id="statOffline"
+            >
+                0
+            </div>
         </div>
 
-    </div>
+        <div class="stat units">
+            <div class="stat-label">
+                Units
+            </div>
 
+            <div
+                class="stat-value"
+                id="statUnits"
+            >
+                0
+            </div>
+        </div>
 
-    <!-- ====================================================
-         INVENTORY MODAL
-         ==================================================== -->
+        <div class="stat gear">
+            <div class="stat-label">
+                Gear
+            </div>
 
-    <div
-        class="modal"
-        id="inventoryModal"
-    >
+            <div
+                class="stat-value"
+                id="statGear"
+            >
+                0
+            </div>
+        </div>
+
+        <div class="stat items">
+            <div class="stat-label">
+                Items
+            </div>
+
+            <div
+                class="stat-value"
+                id="statItems"
+            >
+                0
+            </div>
+        </div>
+
+    </section>
+
+    <div class="section-header">
+
+        <div class="section-title">
+            🎲 MONITORED ACCOUNTS
+        </div>
 
         <div
-            class="modal-card"
-            onclick="event.stopPropagation()"
+            class="refresh"
+            id="refreshText"
         >
-
-            <div class="modal-head">
-
-                <div>
-
-                    <div
-                        class="modal-title"
-                        id="modalTitle"
-                    >
-                        Inventory
-                    </div>
-
-                    <div
-                        class="modal-subtitle"
-                        id="modalSubtitle"
-                    ></div>
-
-                </div>
-
-
-                <button
-                    class="modal-close"
-                    onclick="closeInventory()"
-                >
-                    ×
-                </button>
-
-            </div>
-
-
-            <div
-                class="inventory-list"
-                id="inventoryList"
-            ></div>
-
+            Updating...
         </div>
 
     </div>
 
+    <section
+        class="accounts"
+        id="accounts"
+    ></section>
+
+</main>
+
+
+<!-- ==========================================================
+     INVENTORY MODAL
+     ========================================================== -->
+
+<div
+    class="modal"
+    id="inventoryModal"
+    onclick="closeModalOutside(event)"
+>
+
+    <div
+        class="modal-box"
+        onclick="event.stopPropagation()"
+    >
+
+        <div class="modal-head">
+
+            <div>
+                <div
+                    class="modal-title"
+                    id="modalTitle"
+                >
+                    Inventory
+                </div>
+            </div>
+
+            <button
+                class="close"
+                onclick="closeInventory()"
+            >
+                ×
+            </button>
+
+        </div>
+
+        <div class="tabs">
+
+            <button
+                class="tab active"
+                data-category="units"
+                onclick="switchCategory('units')"
+            >
+                ⚔️ Units
+            </button>
+
+            <button
+                class="tab"
+                data-category="gear"
+                onclick="switchCategory('gear')"
+            >
+                🛡️ Gear
+            </button>
+
+            <button
+                class="tab"
+                data-category="items"
+                onclick="switchCategory('items')"
+            >
+                🎁 Items
+            </button>
+
+        </div>
+
+        <div
+            class="modal-content"
+            id="modalContent"
+        ></div>
+
+    </div>
 
 </div>
 
 
 <script>
 
-/* ==========================================================
-   SECURITY ESCAPER
-   ========================================================== */
+let accountsData = [];
+let selectedAccount = null;
+let selectedCategory = "units";
 
-function esc(value){
 
-    return String(value ?? "")
+function escapeHtml(value) {
+    if (value === null || value === undefined) {
+        return "";
+    }
 
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 
-/* ==========================================================
-   ACCOUNT CACHE
-   ========================================================== */
+function getAmount(item) {
 
-const accountCache = {};
-
-
-/* ==========================================================
-   INVENTORY
-   ========================================================== */
-
-function getInventory(account){
-
-    const inv =
-        account.inventory || {};
-
-    return {
-
-        units:
-            Array.isArray(inv.units)
-                ? inv.units
-                : [],
-
-        gear:
-            Array.isArray(inv.gear)
-                ? inv.gear
-                : [],
-
-        items:
-            Array.isArray(inv.items)
-                ? inv.items
-                : []
-
-    };
-}
-
-
-/* ==========================================================
-   AMOUNT
-   ========================================================== */
-
-function getAmount(item){
-
-    const amount =
-        Number(
-            item?.amount ??
-            item?.quantity ??
-            1
-        );
-
-    if(!Number.isFinite(amount)){
+    if (!item || typeof item !== "object") {
         return 1;
     }
 
-    return Math.max(0,amount);
-}
-
-
-function formatAmount(value){
-
-    return Number(value || 0)
-        .toLocaleString();
-}
-
-
-/* ==========================================================
-   UNIT DETAILS
-   ========================================================== */
-
-function unitDetails(item){
-
-    const details = [];
-
-    if(item.rarity){
-        details.push(
-            "Rarity: " +
-            esc(item.rarity)
-        );
-    }
-
-    if(item.level){
-        details.push(
-            "Level: " +
-            esc(item.level)
-        );
-    }
-
-    if(item.income){
-        details.push(
-            "Income: " +
-            esc(item.income)
-        );
-    }
-
-    if(item.chance){
-        details.push(
-            "Chance: " +
-            esc(item.chance)
-        );
-    }
-
-    if(item.grade){
-        details.push(
-            "Grade: " +
-            esc(item.grade)
-        );
-    }
-
-    if(item.trait){
-        details.push(
-            "Trait: " +
-            esc(item.trait)
-        );
-    }
-
-    return (
-        details.join(" • ") ||
-        "Unit"
-    );
-}
-
-
-/* ==========================================================
-   GEAR DETAILS
-   ========================================================== */
-
-function gearDetails(item){
-
-    const a =
-        item.attributes || {};
-
-    const details = [];
-
-    if(item.slot){
-
-        details.push(
-            "Slot: " +
-            esc(item.slot)
-        );
-    }
-
-    if(a.slot){
-
-        details.push(
-            "Slot: " +
-            esc(a.slot)
-        );
-    }
-
-    if(item.rarity){
-
-        details.push(
-            "Rarity: " +
-            esc(item.rarity)
-        );
-    }
-
-    return (
-        details.join(" • ") ||
-        "Gear"
-    );
-}
-
-
-/* ==========================================================
-   ITEM DETAILS
-   ========================================================== */
-
-function itemDetails(item){
-
-    const details = [];
-
-    if(item.category){
-
-        details.push(
-            esc(item.category)
-        );
-    }
-
-    if(item.rarity){
-
-        details.push(
-            "Rarity: " +
-            esc(item.rarity)
-        );
-    }
-
-    if(item.description){
-
-        details.push(
-            esc(item.description)
-        );
-    }
-
-    return (
-        details.join(" • ") ||
-        "Item"
-    );
-}
-
-
-/* ==========================================================
-   INVENTORY PREVIEW
-   ========================================================== */
-
-function inventoryPreview(account){
-
-    const inv =
-        getInventory(account);
-
-    const names = [
-
-        ...inv.units
-            .slice(0,1)
-            .map(
-                x =>
-                    "Unit: " +
-                    (x.name || "Unknown")
-            ),
-
-        ...inv.gear
-            .slice(0,1)
-            .map(
-                x =>
-                    "Gear: " +
-                    (x.name || "Unknown")
-            ),
-
-        ...inv.items
-            .slice(0,1)
-            .map(
-                x =>
-                    "Item: " +
-                    (x.name || "Unknown")
-            )
-
+    const possibleValues = [
+        item.amount,
+        item.Amount,
+        item.count,
+        item.Count,
+        item.quantity,
+        item.Quantity,
+        item.qty,
+        item.Qty
     ];
 
-    if(!names.length){
-        return "No inventory items";
+    for (const value of possibleValues) {
+        const number = Number(value);
+
+        if (Number.isFinite(number)) {
+            return number;
+        }
     }
 
-    return names.join(" • ");
+    return 1;
 }
 
 
-/* ==========================================================
-   RENDER ACCOUNTS
-   ========================================================== */
+function getItemName(item) {
 
-function renderAccounts(data){
+    if (typeof item === "string") {
+        return item;
+    }
 
-    const root =
-        document.getElementById("accounts");
+    if (!item || typeof item !== "object") {
+        return "Unknown";
+    }
 
-    document.getElementById("online")
-        .textContent =
-        data.online;
+    const possibleNames = [
+        item.name,
+        item.Name,
+        item.displayName,
+        item.DisplayName,
+        item.itemName,
+        item.ItemName,
+        item.unitName,
+        item.UnitName,
+        item.gearName,
+        item.GearName,
+        item.title,
+        item.Title,
+        item.id,
+        item.Id
+    ];
 
-    document.getElementById("offline")
-        .textContent =
-        data.offline;
+    for (const value of possibleNames) {
+        if (
+            value !== undefined &&
+            value !== null &&
+            String(value).trim() !== ""
+        ) {
+            return String(value);
+        }
+    }
 
-    document.getElementById("total")
-        .textContent =
-        data.total;
+    return "Unknown";
+}
 
 
-    if(!data.accounts.length){
+function getItemDetail(item) {
 
-        root.innerHTML =
-            '<div class="empty">' +
-            'No accounts have sent a heartbeat yet.' +
-            '</div>';
+    if (!item || typeof item !== "object") {
+        return "";
+    }
+
+    const details = [];
+
+    const rarity = item.rarity ?? item.Rarity;
+
+    if (rarity !== undefined && rarity !== null) {
+        details.push("Rarity: " + rarity);
+    }
+
+    const level = item.level ?? item.Level;
+
+    if (level !== undefined && level !== null) {
+        details.push("Level: " + level);
+    }
+
+    const id = item.id ?? item.Id;
+
+    if (
+        id !== undefined &&
+        id !== null &&
+        String(id) !== getItemName(item)
+    ) {
+        details.push("ID: " + id);
+    }
+
+    return details.join(" • ");
+}
+
+
+function renderInventory(category) {
+
+    if (!selectedAccount) {
+        return;
+    }
+
+    selectedCategory = category;
+
+    const inventory = selectedAccount.inventory || {};
+
+    let items = inventory[category];
+
+    if (!Array.isArray(items)) {
+        items = [];
+    }
+
+    const content = document.getElementById("modalContent");
+
+    if (items.length === 0) {
+        content.innerHTML = `
+            <div class="no-items">
+                No ${escapeHtml(category)} found.
+            </div>
+        `;
 
         return;
     }
 
+    content.innerHTML = `
+        <div class="inventory-grid">
+            ${items.map((item) => {
 
-    root.innerHTML =
-        data.accounts.map(
-            account => {
-
-                const online =
-                    account.online;
-
-                const name =
-                    account.playerName ||
-                    account.userId ||
-                    "?";
-
-
-                const initial =
-                    esc(
-                        String(name)
-                            .charAt(0)
-                            .toUpperCase()
-                    );
-
-
-                const inv =
-                    getInventory(account);
-
-
-                accountCache[
-                    String(account.userId)
-                ] = account;
-
+                const name = getItemName(item);
+                const amount = getAmount(item);
+                const detail = getItemDetail(item);
 
                 return `
+                    <div class="item">
 
-                <div class="account">
-
-                    <div class="user">
-
-                        <div class="avatar">
-                            ${initial}
+                        <div class="item-name">
+                            ${escapeHtml(name)}
                         </div>
 
-                        <div>
-
-                            <div class="username">
-                                ${esc(name)}
-                            </div>
-
-                            <div class="userid">
-
-                                ID
-                                ${esc(
-                                    account.userId ||
-                                    "—"
-                                )}
-
-                            </div>
-
+                        <div class="item-detail">
+                            Amount: ${escapeHtml(amount)}
                         </div>
-
-                    </div>
-
-
-                    <div
-                        class="${
-                            online
-                                ? "online"
-                                : "offline"
-                        }"
-                    >
-
-                        <span class="status">
-
-                            <span
-                                class="status-dot"
-                            ></span>
-
-                            ${
-                                online
-                                    ? "Online"
-                                    : "Offline"
-                            }
-
-                        </span>
-
-                    </div>
-
-
-                    <div>
-
-                        <button
-                            class="inventory-btn"
-                            data-userid="${
-                                esc(
-                                    account.userId ||
-                                    ""
-                                )
-                            }"
-                            onclick="
-                                openInventory(
-                                    this.dataset.userid
-                                )
-                            "
-                        >
-
-                            <div
-                                class="inventory-summary"
-                            >
-
-                                <span
-                                    class="
-                                        category-pill
-                                        units
-                                    "
-                                >
-                                    Units
-                                    ${
-                                        formatAmount(
-                                            inv.units.length
-                                        )
-                                    }
-                                </span>
-
-
-                                <span
-                                    class="
-                                        category-pill
-                                        gear
-                                    "
-                                >
-                                    Gear
-                                    ${
-                                        formatAmount(
-                                            inv.gear.length
-                                        )
-                                    }
-                                </span>
-
-
-                                <span
-                                    class="
-                                        category-pill
-                                        items
-                                    "
-                                >
-                                    Items
-                                    ${
-                                        formatAmount(
-                                            inv.items.length
-                                        )
-                                    }
-                                </span>
-
-                            </div>
-
-
-                            <div
-                                class="inventory-preview"
-                            >
-                                ${
-                                    esc(
-                                        inventoryPreview(
-                                            account
-                                        )
-                                    )
-                                }
-                            </div>
-
-                        </button>
-
-                    </div>
-
-
-                    <div class="age">
 
                         ${
-                            esc(
-                                account.lastSeenText ||
-                                "—"
-                            )
+                            detail
+                            ? `
+                                <div class="item-detail">
+                                    ${escapeHtml(detail)}
+                                </div>
+                            `
+                            : ""
                         }
 
                     </div>
-
-                </div>
-
                 `;
-            }
-        ).join("");
-}
 
-
-/* ==========================================================
-   INVENTORY SECTION
-   ========================================================== */
-
-function renderSection(
-    title,
-    className,
-    items,
-    detailFunction
-){
-
-    if(!items.length){
-
-        return `
-
-            <div class="section">
-
-                <div
-                    class="
-                        section-title
-                        ${className}
-                    "
-                >
-
-                    ${title}
-
-                    <span
-                        style="opacity:.5"
-                    >
-                        (0)
-                    </span>
-
-                </div>
-
-                <div
-                    class="item-meta"
-                    style="padding:14px"
-                >
-                    No
-                    ${title.toLowerCase()}
-                    reported.
-                </div>
-
-            </div>
-
-        `;
-    }
-
-
-    return `
-
-        <div class="section">
-
-            <div
-                class="
-                    section-title
-                    ${className}
-                "
-            >
-
-                ${title}
-
-                <span
-                    style="opacity:.5"
-                >
-                    (${items.length})
-                </span>
-
-            </div>
-
-
-            ${
-                items.map(
-                    item => {
-
-                        const amount =
-                            getAmount(item);
-
-                        const name =
-                            item.name ||
-                            "Unknown";
-
-
-                        return `
-
-                        <div
-                            class="inventory-item"
-                        >
-
-                            <div>
-
-                                <div
-                                    class="item-name"
-                                >
-                                    ${esc(name)}
-                                </div>
-
-                                <div
-                                    class="item-meta"
-                                >
-                                    ${
-                                        detailFunction(
-                                            item
-                                        )
-                                    }
-                                </div>
-
-                            </div>
-
-
-                            <div
-                                class="item-amount"
-                            >
-                                ×
-                                ${
-                                    formatAmount(
-                                        amount
-                                    )
-                                }
-                            </div>
-
-
-                            <div
-                                class="item-details"
-                            >
-                                ${
-                                    detailFunction(
-                                        item
-                                    )
-                                }
-                            </div>
-
-                        </div>
-
-                        `;
-                    }
-                ).join("")
-            }
-
+            }).join("")}
         </div>
-
     `;
 }
 
 
-/* ==========================================================
-   OPEN INVENTORY
-   ========================================================== */
+function switchCategory(category) {
 
-function openInventory(userId){
+    document
+        .querySelectorAll(".tab")
+        .forEach((tab) => {
 
-    const account =
-        accountCache[String(userId)];
+            tab.classList.toggle(
+                "active",
+                tab.dataset.category === category
+            );
 
-    if(!account){
+        });
+
+    renderInventory(category);
+}
+
+
+function openInventory(accountIndex) {
+
+    selectedAccount = accountsData[accountIndex];
+
+    if (!selectedAccount) {
         return;
     }
 
+    const username =
+        selectedAccount.username ||
+        selectedAccount.name ||
+        selectedAccount.account_id ||
+        "Account";
 
-    const inv =
-        getInventory(account);
+    document.getElementById("modalTitle").textContent =
+        username + " // Inventory";
 
+    document
+        .getElementById("inventoryModal")
+        .classList.add("show");
 
-    const unitCount =
-        inv.units.length;
-
-    const gearCount =
-        inv.gear.length;
-
-    const itemCount =
-        inv.items.length;
-
-
-    document.getElementById(
-        "modalTitle"
-    ).textContent =
-        `${
-            account.playerName ||
-            account.userId
-        } Inventory`;
-
-
-    document.getElementById(
-        "modalSubtitle"
-    ).textContent =
-        `${
-            unitCount
-        } Units • ${
-            gearCount
-        } Gear • ${
-            itemCount
-        } Items`;
-
-
-    let html = "";
-
-
-    html += renderSection(
-        "Units",
-        "units",
-        inv.units,
-        unitDetails
-    );
-
-
-    html += renderSection(
-        "Gear",
-        "gear",
-        inv.gear,
-        gearDetails
-    );
-
-
-    html += renderSection(
-        "Items",
-        "items",
-        inv.items,
-        itemDetails
-    );
-
-
-    document.getElementById(
-        "inventoryList"
-    ).innerHTML = html;
-
-
-    document.getElementById(
-        "inventoryModal"
-    ).classList.add("open");
+    switchCategory("units");
 }
 
 
-/* ==========================================================
-   CLOSE INVENTORY
-   ========================================================== */
+function closeInventory() {
 
-function closeInventory(){
+    document
+        .getElementById("inventoryModal")
+        .classList.remove("show");
 
-    document.getElementById(
-        "inventoryModal"
-    ).classList.remove("open");
+    selectedAccount = null;
 }
 
 
-document.getElementById(
-    "inventoryModal"
-).addEventListener(
-    "click",
-    closeInventory
+function closeModalOutside(event) {
+
+    if (event.target.id === "inventoryModal") {
+        closeInventory();
+    }
+}
+
+
+function renderAccounts(data) {
+
+    accountsData = Array.isArray(data)
+        ? data
+        : [];
+
+    const container =
+        document.getElementById("accounts");
+
+    if (accountsData.length === 0) {
+
+        container.innerHTML = `
+            <div class="empty">
+
+                <div class="empty-icon">
+                    🎲
+                </div>
+
+                <div class="empty-title">
+                    No accounts detected
+                </div>
+
+                <div class="empty-text">
+                    Waiting for an account heartbeat...
+                </div>
+
+            </div>
+        `;
+
+        return;
+    }
+
+    container.innerHTML = accountsData
+        .map((account, index) => {
+
+            const username =
+                account.username ||
+                account.name ||
+                account.account_id ||
+                "Unknown Account";
+
+            const accountId =
+                account.account_id ||
+                "unknown";
+
+            const online =
+                Boolean(account.online);
+
+            const counts =
+                account.inventory_counts || {};
+
+            return `
+                <article class="account">
+
+                    <div class="account-body">
+
+                        <div class="account-top">
+
+                            <div class="account-name">
+
+                                <div class="avatar">
+                                    ${escapeHtml(
+                                        username
+                                            .charAt(0)
+                                            .toUpperCase()
+                                    )}
+                                </div>
+
+                                <div>
+
+                                    <div class="username">
+                                        ${escapeHtml(username)}
+                                    </div>
+
+                                    <div class="account-id">
+                                        ${escapeHtml(accountId)}
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                            <div
+                                class="status ${
+                                    online
+                                        ? "online"
+                                        : "offline"
+                                }"
+                            >
+                                ${
+                                    online
+                                        ? "ONLINE"
+                                        : "OFFLINE"
+                                }
+                            </div>
+
+                        </div>
+
+                        <div class="meta">
+
+                            <span>
+                                Last heartbeat
+                            </span>
+
+                            <span>
+                                ${escapeHtml(
+                                    account.age || "Unknown"
+                                )}
+                            </span>
+
+                        </div>
+
+                        <div class="inventory-preview">
+
+                            <div class="inv-card">
+
+                                <div class="inv-icon">
+                                    ⚔️
+                                </div>
+
+                                <div class="inv-number">
+                                    ${Number(
+                                        counts.units || 0
+                                    ).toLocaleString()}
+                                </div>
+
+                                <div class="inv-label">
+                                    Units
+                                </div>
+
+                            </div>
+
+                            <div class="inv-card">
+
+                                <div class="inv-icon">
+                                    🛡️
+                                </div>
+
+                                <div class="inv-number">
+                                    ${Number(
+                                        counts.gear || 0
+                                    ).toLocaleString()}
+                                </div>
+
+                                <div class="inv-label">
+                                    Gear
+                                </div>
+
+                            </div>
+
+                            <div class="inv-card">
+
+                                <div class="inv-icon">
+                                    🎁
+                                </div>
+
+                                <div class="inv-number">
+                                    ${Number(
+                                        counts.items || 0
+                                    ).toLocaleString()}
+                                </div>
+
+                                <div class="inv-label">
+                                    Items
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                        <button
+                            class="view-btn"
+                            onclick="openInventory(${index})"
+                        >
+                            VIEW INVENTORY
+                        </button>
+
+                    </div>
+
+                </article>
+            `;
+
+        })
+        .join("");
+}
+
+
+function updateStats(stats) {
+
+    if (!stats) {
+        return;
+    }
+
+    document.getElementById("statTotal").textContent =
+        Number(stats.total || 0).toLocaleString();
+
+    document.getElementById("statOnline").textContent =
+        Number(stats.online || 0).toLocaleString();
+
+    document.getElementById("statOffline").textContent =
+        Number(stats.offline || 0).toLocaleString();
+
+    document.getElementById("statUnits").textContent =
+        Number(stats.units || 0).toLocaleString();
+
+    document.getElementById("statGear").textContent =
+        Number(stats.gear || 0).toLocaleString();
+
+    document.getElementById("statItems").textContent =
+        Number(stats.items || 0).toLocaleString();
+}
+
+
+async function refreshDashboard() {
+
+    try {
+
+        const response =
+            await fetch("/api/accounts", {
+                cache: "no-store"
+            });
+
+        if (!response.ok) {
+            throw new Error(
+                "HTTP " + response.status
+            );
+        }
+
+        const data =
+            await response.json();
+
+        if (Array.isArray(data)) {
+
+            renderAccounts(data);
+
+            const stats = {
+                total: data.length,
+
+                online: data.filter(
+                    (account) => account.online
+                ).length,
+
+                offline: data.filter(
+                    (account) => !account.online
+                ).length,
+
+                units: data.reduce(
+                    (total, account) =>
+                        total +
+                        Number(
+                            account.inventory_counts?.units || 0
+                        ),
+                    0
+                ),
+
+                gear: data.reduce(
+                    (total, account) =>
+                        total +
+                        Number(
+                            account.inventory_counts?.gear || 0
+                        ),
+                    0
+                ),
+
+                items: data.reduce(
+                    (total, account) =>
+                        total +
+                        Number(
+                            account.inventory_counts?.items || 0
+                        ),
+                    0
+                )
+            };
+
+            updateStats(stats);
+        }
+
+        document.getElementById("refreshText").textContent =
+            "Updated just now";
+
+    } catch (error) {
+
+        console.error(
+            "[KYOSH] Dashboard refresh failed:",
+            error
+        );
+
+        document.getElementById("refreshText").textContent =
+            "Connection error";
+    }
+}
+
+
+refreshDashboard();
+
+setInterval(
+    refreshDashboard,
+    2000
 );
 
 
 document.addEventListener(
     "keydown",
-    event => {
+    function(event) {
 
-        if(event.key === "Escape"){
+        if (event.key === "Escape") {
             closeInventory();
         }
 
     }
 );
 
-
-/* ==========================================================
-   REFRESH
-   ========================================================== */
-
-async function refresh(){
-
-    try{
-
-        const response =
-            await fetch(
-                "/api/accounts",
-                {
-                    cache:"no-store"
-                }
-            );
-
-
-        if(!response.ok){
-
-            throw new Error(
-                "Request failed"
-            );
-        }
-
-
-        const data =
-            await response.json();
-
-
-        renderAccounts(data);
-
-    }
-
-    catch(error){
-
-        document.getElementById(
-            "accounts"
-        ).innerHTML =
-
-            '<div class="empty">' +
-            'Unable to load account data.' +
-            '</div>';
-
-    }
-}
-
-
-refresh();
-
-setInterval(
-    refresh,
-    2000
-);
-
 </script>
 
 </body>
-</html>"""
+</html>
+"""
 
 
 # ============================================================
-# API FOR LIVE WEBSITE
+# ROUTES
 # ============================================================
 
-@app.get("/api/accounts")
+@app.route("/")
+def home():
+    return HTML
+
+
+@app.route("/api/accounts", methods=["GET"])
 def api_accounts():
 
-    items = get_accounts_snapshot()
+    if not check_key():
+        return jsonify(
+            {
+                "error": "Unauthorized"
+            }
+        ), 401
 
-    result = []
-
-
-    for account in sorted(
-        items,
-        key=lambda x:
-            (x.get("playerName") or "").lower()
-    ):
-
-        online =
-            account_is_online(account)
-
-        inventory =
-            clean_inventory(
-                account.get("inventory")
-            )
+    return jsonify(
+        get_accounts_snapshot()
+    )
 
 
-        result.append({
-
-            "userId":
-                account.get(
-                    "userId",
-                    ""
-                ),
-
-            "playerName":
-                account.get(
-                    "playerName",
-                    ""
-                ),
-
-            "displayName":
-                account.get(
-                    "displayName",
-                    ""
-                ),
-
-            "online":
-                online,
-
-            "inventory":
-                inventory,
-
-            "lastSeenText":
-                format_age(
-                    time.time() -
-                    float(
-                        account.get(
-                            "lastSeen",
-                            time.time()
-                        )
-                    )
-                )
-
-        })
-
-
-    online =
-        sum(
-            1
-            for x in result
-            if x["online"]
-        )
-
-    offline =
-        len(result) - online
-
-
-    return jsonify({
-
-        "ok": True,
-
-        "online":
-            online,
-
-        "offline":
-            offline,
-
-        "total":
-            len(result),
-
-        "accounts":
-            result
-
-    })
-
-
-# ============================================================
-# HEALTH
-# ============================================================
-
-@app.get("/health")
+@app.route("/health", methods=["GET"])
 def health():
-
-    online, offline, total =
-        dashboard_stats()
-
-
-    return jsonify({
-
-        "ok":
-            True,
-
-        "game":
-            "Anime Dice",
-
-        "online":
-            online,
-
-        "offline":
-            offline,
-
-        "accounts":
-            total,
-
-        "discord_message_id_exists":
-            discord_message_id is not None
-
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "service": "KYOSH Anime Dice Monitor",
+            "accounts": len(accounts),
+            "timestamp": int(time.time())
+        }
+    )
 
 
-# ============================================================
-# HEARTBEAT
-# ============================================================
-
-@app.post("/heartbeat")
+@app.route("/heartbeat", methods=["POST"])
 def heartbeat():
 
-    if not check_key(request):
+    if not check_key():
+        return jsonify(
+            {
+                "error": "Unauthorized"
+            }
+        ), 401
 
-        print(
-            "❌ Unauthorized heartbeat request"
-        )
-
-        return jsonify({
-
-            "ok":
-                False,
-
-            "error":
-                "Unauthorized"
-
-        }), 401
-
-
-    data =
-        request.get_json(
-            silent=True
-        ) or {}
-
-
-    user_id =
-        str(
-            data.get(
-                "userId",
-                ""
-            )
-        ).strip()
-
-
-    if not user_id:
-
-        return jsonify({
-
-            "ok":
-                False,
-
-            "error":
-                "Missing userId"
-
-        }), 400
-
-
-    player_name =
-        str(
-            data.get(
-                "playerName"
-            ) or user_id
-        )
-
-
-    display_name =
-        str(
-            data.get(
-                "displayName"
-            ) or ""
-        )
-
-
-    incoming_inventory =
-        data.get("inventory")
-
-
-    if incoming_inventory is not None:
-
-        inventory =
-            clean_inventory(
-                incoming_inventory
-            )
-
-    else:
-
-        with state_lock:
-
-            old =
-                accounts.get(
-                    user_id,
-                    {}
-                )
-
-
-        inventory =
-            clean_inventory(
-                old.get(
-                    "inventory"
-                )
-            )
-
-
-    print(
-        "========== ANIME DICE HEARTBEAT =========="
+    data = request.get_json(
+        silent=True
     )
 
-    print(
-        "PLAYER:",
-        player_name
-    )
+    if not isinstance(data, dict):
+        return jsonify(
+            {
+                "error": "JSON body required"
+            }
+        ), 400
 
-    print(
-        "UNITS:",
-        len(
-            inventory["units"]
-        )
-    )
+    account_id = data.get("account_id")
 
-    print(
-        "GEAR:",
-        len(
-            inventory["gear"]
-        )
-    )
+    if account_id is None:
+        account_id = data.get("username")
 
-    print(
-        "ITEMS:",
-        len(
-            inventory["items"]
-        )
-    )
+    if account_id is None:
+        account_id = data.get("name")
 
-    print(
-        "==========================================="
-    )
+    if account_id is None:
+        return jsonify(
+            {
+                "error": "account_id is required"
+            }
+        ), 400
 
+    account_id = str(account_id)
+
+    now = time.time()
 
     with state_lock:
 
-        old =
-            accounts.get(
-                user_id,
-                {}
+        previous = accounts.get(
+            account_id,
+            {}
+        )
+
+        if not isinstance(previous, dict):
+            previous = {}
+
+        account = dict(previous)
+
+        account.update(data)
+
+        account["account_id"] = account_id
+        account["last_heartbeat"] = now
+
+        if "inventory" in data:
+            account["inventory"] = clean_inventory(
+                data.get("inventory")
+            )
+        else:
+            account["inventory"] = clean_inventory(
+                account.get("inventory", {})
             )
 
+        accounts[account_id] = account
 
-        accounts[user_id] = {
+        save_accounts()
 
-            "userId":
-                user_id,
-
-            "playerName":
-                player_name,
-
-            "displayName":
-                display_name,
-
-            "inventory":
-                inventory,
-
-            "lastSeen":
-                time.time()
-
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Anime Dice heartbeat received",
+            "account_id": account_id,
+            "online": True
         }
-
-
-    save_accounts()
-
-
-    threading.Thread(
-        target=update_discord,
-        daemon=True
-    ).start()
-
-
-    return jsonify({
-
-        "ok":
-            True,
-
-        "message":
-            "Anime Dice heartbeat received"
-
-    })
+    )
 
 
 # ============================================================
@@ -3428,37 +2328,32 @@ def heartbeat():
 # ============================================================
 
 load_accounts()
-
 load_discord_message()
 
 
-threading.Thread(
+monitor_thread = threading.Thread(
     target=monitor_loop,
     daemon=True
-).start()
+)
+
+monitor_thread.start()
 
 
 # ============================================================
-# RUN
+# MAIN
 # ============================================================
 
 if __name__ == "__main__":
 
-    port =
-        int(
-            os.environ.get(
-                "PORT",
-                "10000"
-            )
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000"
         )
-
-
-    app.run(
-
-        host="0.0.0.0",
-
-        port=port
-
     )
 
-
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
