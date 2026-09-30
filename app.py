@@ -942,26 +942,29 @@ function formatAmount(value){
 
 function unitDetails(item){
     const a = item.attributes || {};
-
     const details = [];
 
-    if(a.level !== undefined && a.level !== null){
+    if (item.chance) {
+        details.push("Chance: " + esc(item.chance));
+    }
+
+    if (a.level !== undefined && a.level !== null) {
         details.push("Lv. " + esc(a.level));
     }
 
-    if(a.grade){
+    if (a.grade) {
         details.push("Grade: " + esc(a.grade));
     }
 
-    if(a.trait){
+    if (a.trait) {
         details.push("Trait: " + esc(a.trait));
     }
 
-    if(a.mutation){
+    if (a.mutation) {
         details.push("Mutation: " + esc(a.mutation));
     }
 
-    if(item.rarity){
+    if (item.rarity) {
         details.push("Rarity: " + esc(item.rarity));
     }
 
