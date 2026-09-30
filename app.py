@@ -314,11 +314,6 @@ def monitor_loop():
 
         time.sleep(DISCORD_UPDATE_INTERVAL)
 
-
-# ============================================================
-# WEBSITE
-# ============================================================
-
 @app.get("/")
 def home():
     return """<!doctype html>
@@ -330,190 +325,667 @@ def home():
 
 <style>
 :root{
-    --bg:#06110a;
-    --panel:rgba(12,30,17,.90);
-    --panel2:rgba(17,39,22,.96);
-    --line:rgba(116,188,91,.20);
-    --line2:rgba(160,220,120,.30);
-    --text:#f4ffe9;
-    --muted:#8fa58b;
-    --green:#69e85d;
-    --lime:#b8ff72;
-    --red:#ff5b62;
-    --blue:#72c7ff;
-    --purple:#c084ff;
-    --gold:#ffd75a;
+    --bg:#070512;
+    --bg2:#0d0820;
+    --panel:rgba(18,12,38,.88);
+    --panel2:rgba(25,16,50,.94);
+
+    --purple:#9d6cff;
+    --purple2:#c59cff;
+    --pink:#ff65d8;
+    --blue:#62cfff;
+    --cyan:#72f4ff;
+    --gold:#ffd76a;
+
+    --green:#69f6a1;
+    --red:#ff5d7a;
+
+    --text:#f8f4ff;
+    --muted:#928aa8;
+
+    --line:rgba(157,108,255,.20);
+    --line2:rgba(197,156,255,.40);
 }
 
-*{box-sizing:border-box}
+*{
+    box-sizing:border-box;
+}
 
-html{background:#06110a}
+html{
+    background:#070512;
+}
 
 body{
     margin:0;
     min-height:100vh;
     color:var(--text);
-    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
     background:
-        radial-gradient(circle at 12% 8%,rgba(104,232,93,.16),transparent 24%),
-        radial-gradient(circle at 88% 18%,rgba(184,255,114,.10),transparent 22%),
-        radial-gradient(circle at 50% 100%,rgba(46,189,85,.13),transparent 35%),
-        linear-gradient(180deg,#07150a 0%,#06110a 55%,#040b06 100%);
+        radial-gradient(
+            circle at 15% 10%,
+            rgba(157,108,255,.20),
+            transparent 28%
+        ),
+        radial-gradient(
+            circle at 85% 15%,
+            rgba(255,101,216,.14),
+            transparent 25%
+        ),
+        radial-gradient(
+            circle at 50% 80%,
+            rgba(98,207,255,.10),
+            transparent 32%
+        ),
+        linear-gradient(
+            135deg,
+            #05030d 0%,
+            #0b0619 45%,
+            #100821 100%
+        );
+
     overflow-x:hidden;
 }
 
-body::before,
+/* =========================================================
+   ANIME ENERGY BACKGROUND
+   ========================================================= */
+
+body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    z-index:-5;
+
+    background:
+        linear-gradient(
+            115deg,
+            transparent 0%,
+            rgba(157,108,255,.025) 35%,
+            rgba(255,101,216,.035) 50%,
+            transparent 75%
+        );
+
+    pointer-events:none;
+}
+
 body::after{
     content:"";
     position:fixed;
-    z-index:-1;
-    width:180px;
-    height:225px;
-    border-radius:52% 48% 50% 50% / 58% 58% 42% 42%;
+    inset:-50%;
+
+    z-index:-4;
+
     background:
-        radial-gradient(circle at 34% 28%,rgba(255,255,255,.85) 0 3%,transparent 4%),
-        radial-gradient(circle at 42% 35%,rgba(255,255,255,.18) 0 10%,transparent 11%),
-        linear-gradient(145deg,#f6ffe8,#ccecae 48%,#82c968);
-    opacity:.045;
+        conic-gradient(
+            from 180deg,
+            transparent,
+            rgba(157,108,255,.045),
+            transparent,
+            rgba(98,207,255,.035),
+            transparent
+        );
+
+    animation:backgroundRotate 25s linear infinite;
+
+    pointer-events:none;
 }
 
-body::before{
-    top:70px;
-    left:-65px;
+@keyframes backgroundRotate{
+    from{
+        transform:rotate(0deg);
+    }
+
+    to{
+        transform:rotate(360deg);
+    }
+}
+
+/* =========================================================
+   FLOATING DICE
+   ========================================================= */
+
+.dice{
+    position:fixed;
+    z-index:-2;
+
+    width:58px;
+    height:58px;
+
+    display:grid;
+    place-items:center;
+
+    color:rgba(255,255,255,.13);
+
+    font-size:30px;
+    font-weight:900;
+
+    border:1px solid rgba(197,156,255,.13);
+    border-radius:14px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(157,108,255,.08),
+            rgba(255,101,216,.035)
+        );
+
+    box-shadow:
+        0 0 25px rgba(157,108,255,.08),
+        inset 0 0 20px rgba(255,255,255,.025);
+
+    backdrop-filter:blur(5px);
+
+    pointer-events:none;
+}
+
+.dice.one{
+    top:15%;
+    left:5%;
     transform:rotate(-18deg);
+    animation:floatOne 7s ease-in-out infinite;
 }
 
-body::after{
-    right:-70px;
-    bottom:40px;
-    transform:rotate(24deg) scale(.8);
+.dice.two{
+    top:28%;
+    right:5%;
+    transform:rotate(17deg);
+    animation:floatTwo 9s ease-in-out infinite;
 }
+
+.dice.three{
+    bottom:20%;
+    left:8%;
+    transform:rotate(13deg);
+    animation:floatThree 8s ease-in-out infinite;
+}
+
+.dice.four{
+    bottom:10%;
+    right:10%;
+    transform:rotate(-12deg);
+    animation:floatFour 10s ease-in-out infinite;
+}
+
+@keyframes floatOne{
+    0%,100%{
+        transform:translateY(0) rotate(-18deg);
+    }
+
+    50%{
+        transform:translateY(-25px) rotate(-8deg);
+    }
+}
+
+@keyframes floatTwo{
+    0%,100%{
+        transform:translateY(0) rotate(17deg);
+    }
+
+    50%{
+        transform:translateY(30px) rotate(27deg);
+    }
+}
+
+@keyframes floatThree{
+    0%,100%{
+        transform:translateY(0) rotate(13deg);
+    }
+
+    50%{
+        transform:translateY(-20px) rotate(25deg);
+    }
+}
+
+@keyframes floatFour{
+    0%,100%{
+        transform:translateY(0) rotate(-12deg);
+    }
+
+    50%{
+        transform:translateY(25px) rotate(-25deg);
+    }
+}
+
+/* =========================================================
+   ENERGY PARTICLES
+   ========================================================= */
+
+.particles{
+    position:fixed;
+    inset:0;
+    z-index:-3;
+    pointer-events:none;
+    overflow:hidden;
+}
+
+.particle{
+    position:absolute;
+
+    width:3px;
+    height:3px;
+
+    border-radius:50%;
+
+    background:var(--purple2);
+
+    box-shadow:
+        0 0 8px var(--purple),
+        0 0 15px rgba(157,108,255,.45);
+
+    animation:
+        particleFloat
+        var(--duration)
+        linear infinite;
+
+    opacity:0;
+}
+
+@keyframes particleFloat{
+    0%{
+        transform:translateY(110vh) scale(.5);
+        opacity:0;
+    }
+
+    15%{
+        opacity:.7;
+    }
+
+    80%{
+        opacity:.45;
+    }
+
+    100%{
+        transform:translateY(-10vh) scale(1);
+        opacity:0;
+    }
+}
+
+/* =========================================================
+   MAIN
+   ========================================================= */
 
 .wrapper{
     position:relative;
+
     width:min(1450px,94%);
+
     margin:0 auto;
-    padding:30px 0 45px;
+
+    padding:
+        35px
+        0
+        55px;
 }
 
 .wrapper::before{
     content:"";
+
     position:absolute;
+
     left:0;
     right:0;
     top:0;
-    height:3px;
-    border-radius:99px;
-    background:linear-gradient(90deg,transparent,var(--green),var(--lime),var(--green),transparent);
-    box-shadow:0 0 24px rgba(105,232,93,.45);
+
+    height:2px;
+
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            var(--purple),
+            var(--pink),
+            var(--blue),
+            var(--purple),
+            transparent
+        );
+
+    box-shadow:
+        0 0 15px var(--purple),
+        0 0 35px rgba(157,108,255,.35);
+
+    border-radius:999px;
 }
+
+/* =========================================================
+   HEADER
+   ========================================================= */
 
 .header{
     display:flex;
+
     align-items:center;
     justify-content:space-between;
+
     gap:20px;
-    margin-bottom:24px;
+
+    margin-bottom:25px;
+
     padding-top:10px;
 }
 
 .brand{
     display:flex;
+
     align-items:center;
-    gap:14px;
+
+    gap:15px;
 }
 
 .logo{
-    width:50px;
-    height:50px;
-    border-radius:16px 16px 19px 19px;
+    position:relative;
+
+    width:58px;
+    height:58px;
+
     display:grid;
     place-items:center;
-    background:linear-gradient(145deg,#f7ffe9,#bfe99d 55%,#68bd5e);
-    border:2px solid rgba(196,255,142,.65);
-    box-shadow:0 0 0 4px rgba(105,232,93,.08),0 8px 25px rgba(0,0,0,.35),0 0 28px rgba(105,232,93,.16);
-    color:#163315;
-    font-size:25px;
+
+    border-radius:17px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #24134d,
+            #130c2c
+        );
+
+    border:
+        1px solid
+        rgba(197,156,255,.65);
+
+    box-shadow:
+        0 0 0 4px rgba(157,108,255,.06),
+        0 0 20px rgba(157,108,255,.30),
+        0 0 45px rgba(255,101,216,.10),
+        inset 0 0 20px rgba(157,108,255,.10);
+
     transform:rotate(-5deg);
+
+    color:white;
+
+    font-size:27px;
+}
+
+.logo::before{
+    content:"";
+
+    position:absolute;
+
+    inset:-3px;
+
+    border-radius:19px;
+
+    border:
+        1px solid
+        rgba(255,101,216,.20);
+
+    animation:
+        logoGlow
+        2.5s ease-in-out
+        infinite;
 }
 
 .logo::after{
     content:"🎲";
+
+    filter:
+        drop-shadow(
+            0 0 8px
+            rgba(197,156,255,.7)
+        );
+}
+
+@keyframes logoGlow{
+    0%,100%{
+        opacity:.3;
+    }
+
+    50%{
+        opacity:1;
+    }
 }
 
 h1{
     margin:0;
-    font-size:24px;
+
+    font-size:25px;
+
     letter-spacing:-.7px;
-    text-shadow:0 2px 18px rgba(105,232,93,.14);
+
+    font-weight:900;
+
+    background:
+        linear-gradient(
+            90deg,
+            #ffffff,
+            #cdaeff,
+            #ff9ce6,
+            #8feaff
+        );
+
+    -webkit-background-clip:text;
+    background-clip:text;
+
+    color:transparent;
+
+    text-shadow:
+        0 0 30px rgba(157,108,255,.18);
 }
 
 .subtitle{
     color:var(--muted);
+
     font-size:13px;
-    margin-top:4px;
+
+    margin-top:5px;
+
+    letter-spacing:.2px;
 }
+
+/* =========================================================
+   LIVE
+   ========================================================= */
 
 .live{
     display:flex;
+
     align-items:center;
-    gap:8px;
-    padding:10px 15px;
-    border:1px solid var(--line2);
-    background:rgba(12,30,17,.78);
+
+    gap:9px;
+
+    padding:
+        10px
+        16px;
+
+    border:
+        1px solid
+        rgba(105,246,161,.25);
+
+    background:
+        rgba(16,29,35,.65);
+
     border-radius:999px;
-    color:#b9cbb4;
-    font-size:12px;
+
+    color:#b5c9c0;
+
+    font-size:11px;
+
+    font-weight:800;
+
+    letter-spacing:.6px;
+
+    box-shadow:
+        0 0 20px rgba(105,246,161,.05);
 }
 
 .live-dot{
     width:8px;
     height:8px;
+
     border-radius:50%;
+
     background:var(--green);
-    box-shadow:0 0 8px var(--green),0 0 16px rgba(105,232,93,.45);
-    animation:pulse 1.7s infinite;
+
+    box-shadow:
+        0 0 8px var(--green),
+        0 0 18px rgba(105,246,161,.55);
+
+    animation:
+        pulse
+        1.5s
+        infinite;
 }
+
+/* =========================================================
+   STATS
+   ========================================================= */
 
 .stats{
     display:grid;
-    grid-template-columns:repeat(3,1fr);
-    gap:13px;
+
+    grid-template-columns:
+        repeat(3,1fr);
+
+    gap:14px;
+
     margin-bottom:18px;
 }
 
 .stat{
     position:relative;
+
     overflow:hidden;
-    background:linear-gradient(145deg,rgba(22,51,27,.90),rgba(8,25,13,.92));
-    border:1px solid var(--line);
-    border-radius:17px;
-    padding:18px 20px;
-    box-shadow:0 15px 40px rgba(0,0,0,.20);
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(26,16,52,.90),
+            rgba(10,7,24,.92)
+        );
+
+    border:
+        1px solid
+        var(--line);
+
+    border-radius:18px;
+
+    padding:
+        19px
+        21px;
+
+    box-shadow:
+        0 18px 50px rgba(0,0,0,.30),
+        inset 0 0 25px rgba(157,108,255,.025);
+
+    backdrop-filter:blur(12px);
+
+    transition:
+        transform .2s ease,
+        border-color .2s ease,
+        box-shadow .2s ease;
+}
+
+.stat::before{
+    content:"";
+
+    position:absolute;
+
+    top:0;
+    left:-100%;
+
+    width:100%;
+    height:1px;
+
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            var(--purple2),
+            transparent
+        );
+
+    animation:
+        statScan
+        4s
+        linear
+        infinite;
+}
+
+.stat:hover{
+    transform:translateY(-3px);
+
+    border-color:
+        rgba(197,156,255,.35);
+
+    box-shadow:
+        0 22px 55px rgba(0,0,0,.35),
+        0 0 25px rgba(157,108,255,.07);
+}
+
+@keyframes statScan{
+    0%{
+        left:-100%;
+    }
+
+    50%,100%{
+        left:100%;
+    }
 }
 
 .stat-label{
-    color:#91aa8c;
-    font-size:11px;
+    color:#817994;
+
+    font-size:10px;
+
     margin-bottom:7px;
+
     text-transform:uppercase;
-    letter-spacing:.8px;
-    font-weight:700;
+
+    letter-spacing:1.2px;
+
+    font-weight:900;
 }
 
 .stat-value{
-    font-size:27px;
-    font-weight:800;
-    color:#f3ffe8;
+    font-size:28px;
+
+    font-weight:900;
+
+    color:#fff;
+
+    text-shadow:
+        0 0 20px rgba(157,108,255,.15);
 }
 
+/* =========================================================
+   TABLE
+   ========================================================= */
+
 .table{
-    border:1px solid var(--line);
-    background:var(--panel);
-    border-radius:18px;
+    border:
+        1px solid
+        var(--line);
+
+    background:
+        var(--panel);
+
+    border-radius:20px;
+
     overflow:hidden;
-    box-shadow:0 25px 70px rgba(0,0,0,.32),0 0 0 1px rgba(105,232,93,.025);
-    backdrop-filter:blur(12px);
+
+    box-shadow:
+        0 30px 90px rgba(0,0,0,.45),
+        0 0 40px rgba(157,108,255,.035);
+
+    backdrop-filter:blur(16px);
 }
 
 .table-scroll{
@@ -523,28 +995,60 @@ h1{
 .table-head,
 .account{
     display:grid;
-    grid-template-columns:minmax(210px,2fr) 120px minmax(180px,1.7fr) 110px;
+
+    grid-template-columns:
+        minmax(210px,2fr)
+        120px
+        minmax(180px,1.7fr)
+        110px;
+
     align-items:center;
+
     min-width:760px;
 }
 
 .table-head{
-    height:50px;
-    padding:0 18px;
-    color:#769072;
-    background:linear-gradient(180deg,rgba(20,45,24,.96),rgba(9,23,13,.96));
-    border-bottom:1px solid var(--line);
+    height:52px;
+
+    padding:
+        0
+        18px;
+
+    color:#827995;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(31,19,59,.95),
+            rgba(13,8,28,.96)
+        );
+
+    border-bottom:
+        1px solid
+        var(--line);
+
     font-size:10px;
-    font-weight:800;
+
+    font-weight:900;
+
     text-transform:uppercase;
-    letter-spacing:1px;
+
+    letter-spacing:1.1px;
 }
 
 .account{
-    padding:14px 18px;
-    min-height:76px;
-    border-bottom:1px solid rgba(105,160,88,.12);
-    transition:background .18s ease;
+    padding:
+        14px
+        18px;
+
+    min-height:78px;
+
+    border-bottom:
+        1px solid
+        rgba(157,108,255,.09);
+
+    transition:
+        background .2s ease;
 }
 
 .account:last-child{
@@ -552,360 +1056,848 @@ h1{
 }
 
 .account:hover{
-    background:linear-gradient(90deg,rgba(72,154,66,.12),rgba(105,232,93,.035));
+    background:
+        linear-gradient(
+            90deg,
+            rgba(157,108,255,.10),
+            rgba(255,101,216,.035),
+            transparent
+        );
 }
+
+/* =========================================================
+   USER
+   ========================================================= */
 
 .user{
     display:flex;
+
     align-items:center;
+
     gap:11px;
+
     min-width:0;
 }
 
 .avatar{
-    width:37px;
-    height:37px;
-    flex:0 0 37px;
-    border-radius:13px;
+    width:39px;
+    height:39px;
+
+    flex:0 0 39px;
+
     display:grid;
     place-items:center;
-    background:linear-gradient(145deg,#eaffd4,#94d477 65%,#4a9c4d);
-    border:1px solid rgba(202,255,158,.55);
-    color:#163b19;
-    font-size:12px;
+
+    border-radius:13px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #3a236b,
+            #17102f
+        );
+
+    border:
+        1px solid
+        rgba(197,156,255,.45);
+
+    color:#e9dfff;
+
+    font-size:13px;
+
     font-weight:900;
-    box-shadow:0 5px 14px rgba(0,0,0,.25);
+
+    box-shadow:
+        0 0 18px rgba(157,108,255,.13),
+        inset 0 0 14px rgba(197,156,255,.06);
 }
 
 .username{
     overflow:hidden;
+
     text-overflow:ellipsis;
+
     white-space:nowrap;
-    font-weight:700;
+
+    font-weight:800;
+
     font-size:14px;
 }
 
 .userid{
-    color:#637a61;
+    color:#625b71;
+
     font-size:10px;
+
     margin-top:2px;
 }
 
+/* =========================================================
+   STATUS
+   ========================================================= */
+
 .status{
     display:inline-flex;
+
     align-items:center;
+
     gap:7px;
+
     font-size:12px;
-    font-weight:700;
+
+    font-weight:800;
 }
 
 .status-dot{
     width:7px;
     height:7px;
+
     border-radius:50%;
 }
 
 .online .status-dot{
     background:var(--green);
-    box-shadow:0 0 8px var(--green),0 0 14px rgba(105,232,93,.35);
+
+    box-shadow:
+        0 0 8px var(--green),
+        0 0 15px rgba(105,246,161,.40);
 }
 
-.online .status{color:#bfeeb6}
+.online .status{
+    color:#9df8c6;
+}
 
 .offline .status-dot{
     background:var(--red);
-    box-shadow:0 0 7px rgba(255,91,98,.35);
+
+    box-shadow:
+        0 0 8px rgba(255,93,122,.40);
 }
 
-.offline .status{color:#788276}
+.offline .status{
+    color:#716a78;
+}
+
+/* =========================================================
+   INVENTORY
+   ========================================================= */
 
 .inventory-summary{
     display:flex;
-    gap:7px;
+
+    gap:6px;
+
     flex-wrap:wrap;
 }
 
 .category-pill{
-    border:1px solid rgba(112,178,92,.22);
-    background:rgba(18,40,22,.8);
+    border:
+        1px solid
+        rgba(157,108,255,.18);
+
+    background:
+        rgba(20,13,40,.80);
+
     border-radius:999px;
-    padding:6px 9px;
+
+    padding:
+        6px
+        9px;
+
     font-size:10px;
-    font-weight:800;
-    color:#dcebd7;
+
+    font-weight:900;
 }
 
 .category-pill.units{
-    color:#b8ff72;
+    color:#c59cff;
+
+    border-color:
+        rgba(197,156,255,.22);
 }
 
 .category-pill.gear{
-    color:#c084ff;
+    color:#ff91e5;
+
+    border-color:
+        rgba(255,101,216,.20);
 }
 
 .category-pill.items{
-    color:#72c7ff;
+    color:#72dcff;
+
+    border-color:
+        rgba(98,207,255,.20);
 }
 
 .inventory-btn{
-    border:1px solid rgba(112,178,92,.25);
-    background:linear-gradient(135deg,rgba(28,59,31,.85),rgba(12,31,17,.9));
-    color:#e4f4dc;
-    border-radius:10px;
-    padding:9px 12px;
+    border:
+        1px solid
+        rgba(157,108,255,.22);
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(35,22,67,.85),
+            rgba(13,8,28,.92)
+        );
+
+    color:#eee7ff;
+
+    border-radius:11px;
+
+    padding:
+        9px
+        12px;
+
     cursor:pointer;
+
     font:inherit;
-    transition:.15s ease;
+
+    transition:
+        .18s ease;
+
     width:100%;
 }
 
 .inventory-btn:hover{
-    background:linear-gradient(135deg,rgba(48,93,48,.9),rgba(15,39,20,.95));
-    border-color:rgba(184,255,114,.45);
+    background:
+        linear-gradient(
+            135deg,
+            rgba(61,36,108,.90),
+            rgba(20,11,42,.95)
+        );
+
+    border-color:
+        rgba(197,156,255,.50);
+
+    box-shadow:
+        0 0 20px rgba(157,108,255,.09);
+
     transform:translateY(-1px);
 }
 
 .inventory-preview{
-    color:#748b70;
+    color:#746d82;
+
     font-size:10px;
+
     margin-top:4px;
+
     white-space:nowrap;
+
     overflow:hidden;
+
     text-overflow:ellipsis;
 }
 
 .age{
-    color:#70836d;
+    color:#6f687a;
+
     font-size:12px;
 }
 
+/* =========================================================
+   MODAL
+   ========================================================= */
+
 .modal{
     position:fixed;
+
     inset:0;
+
     z-index:1000;
+
     display:none;
+
     align-items:center;
+
     justify-content:center;
+
     padding:20px;
-    background:rgba(1,8,3,.78);
-    backdrop-filter:blur(9px);
+
+    background:
+        rgba(3,1,10,.82);
+
+    backdrop-filter:
+        blur(12px);
 }
 
-.modal.open{display:flex}
+.modal.open{
+    display:flex;
+}
 
 .modal-card{
     width:min(900px,96vw);
+
     max-height:88vh;
+
     overflow:hidden;
-    background:linear-gradient(145deg,#102616,#08170c);
-    border:1px solid rgba(133,210,104,.28);
-    border-radius:18px;
-    box-shadow:0 30px 90px rgba(0,0,0,.65),0 0 45px rgba(72,154,66,.10);
+
+    background:
+        linear-gradient(
+            145deg,
+            #1a1034,
+            #090516
+        );
+
+    border:
+        1px solid
+        rgba(197,156,255,.30);
+
+    border-radius:19px;
+
+    box-shadow:
+        0 30px 100px rgba(0,0,0,.70),
+        0 0 50px rgba(157,108,255,.10);
 }
 
 .modal-head{
     display:flex;
+
     align-items:center;
+
     justify-content:space-between;
+
     gap:15px;
-    padding:16px 18px;
-    border-bottom:1px solid var(--line);
+
+    padding:
+        17px
+        19px;
+
+    border-bottom:
+        1px solid
+        var(--line);
 }
 
 .modal-title{
-    font-weight:800;
+    font-weight:900;
+
     font-size:16px;
+
+    background:
+        linear-gradient(
+            90deg,
+            #fff,
+            #c59cff,
+            #ff9ce6
+        );
+
+    -webkit-background-clip:text;
+    background-clip:text;
+
+    color:transparent;
 }
 
 .modal-subtitle{
     color:var(--muted);
+
     font-size:11px;
+
     margin-top:3px;
 }
 
 .modal-close{
-    border:1px solid rgba(130,184,112,.25);
-    background:#14291a;
-    color:#dfeeda;
+    border:
+        1px solid
+        rgba(197,156,255,.20);
+
+    background:
+        #17102c;
+
+    color:#e9e0fa;
+
     border-radius:9px;
-    width:34px;
-    height:34px;
+
+    width:35px;
+    height:35px;
+
     cursor:pointer;
+
     font-size:18px;
+
+    transition:.15s;
+}
+
+.modal-close:hover{
+    background:#28174b;
+
+    border-color:
+        rgba(197,156,255,.45);
+
+    transform:rotate(5deg);
 }
 
 .inventory-list{
     max-height:70vh;
+
     overflow:auto;
+
     padding:12px;
 }
 
+/* =========================================================
+   INVENTORY SECTIONS
+   ========================================================= */
+
 .section{
     margin-bottom:18px;
-    border:1px solid rgba(105,160,88,.12);
+
+    border:
+        1px solid
+        rgba(157,108,255,.12);
+
     border-radius:13px;
+
     overflow:hidden;
-    background:rgba(7,20,10,.38);
+
+    background:
+        rgba(7,4,18,.38);
 }
 
 .section-title{
-    padding:12px 13px;
+    padding:
+        12px
+        13px;
+
     font-size:12px;
+
     font-weight:900;
+
     letter-spacing:.7px;
+
     text-transform:uppercase;
-    background:rgba(18,40,22,.75);
-    border-bottom:1px solid rgba(105,160,88,.12);
+
+    background:
+        rgba(28,17,53,.75);
+
+    border-bottom:
+        1px solid
+        rgba(157,108,255,.10);
 }
 
-.section-title.units{color:var(--lime)}
-.section-title.gear{color:var(--purple)}
-.section-title.items{color:var(--blue)}
+.section-title.units{
+    color:var(--purple2);
+}
+
+.section-title.gear{
+    color:var(--pink);
+}
+
+.section-title.items{
+    color:var(--blue);
+}
 
 .inventory-item{
     display:grid;
-    grid-template-columns:minmax(180px,1fr) 90px minmax(150px,1fr);
+
+    grid-template-columns:
+        minmax(180px,1fr)
+        90px
+        minmax(150px,1fr);
+
     gap:12px;
+
     align-items:center;
-    padding:11px 13px;
-    border-bottom:1px solid rgba(105,160,88,.10);
+
+    padding:
+        11px
+        13px;
+
+    border-bottom:
+        1px solid
+        rgba(157,108,255,.08);
 }
 
-.inventory-item:last-child{border-bottom:0}
+.inventory-item:last-child{
+    border-bottom:0;
+}
 
 .item-name{
-    font-weight:800;
+    font-weight:900;
+
     font-size:12px;
 }
 
 .item-meta{
-    color:#70836d;
+    color:#746c80;
+
     font-size:10px;
+
     margin-top:3px;
 }
 
 .item-amount{
-    color:#eaffdc;
+    color:#f3eaff;
+
     font-size:12px;
+
     font-weight:900;
+
     text-align:center;
 }
 
 .item-details{
-    color:#9cb297;
+    color:#9b91a8;
+
     font-size:10px;
+
     text-align:right;
 }
 
 .empty{
     padding:70px 20px;
+
     text-align:center;
+
     color:var(--muted);
 }
 
 .footer{
-    padding:14px 18px;
-    color:#61745e;
+    padding:
+        14px
+        18px;
+
+    color:#625b70;
+
     font-size:11px;
-    border-top:1px solid var(--line);
-    background:rgba(7,20,10,.85);
+
+    border-top:
+        1px solid
+        var(--line);
+
+    background:
+        rgba(7,4,17,.85);
 }
 
 @keyframes pulse{
-    0%,100%{transform:scale(1);opacity:1}
-    50%{transform:scale(1.18);opacity:.75}
+    0%,100%{
+        transform:scale(1);
+        opacity:1;
+    }
+
+    50%{
+        transform:scale(1.2);
+        opacity:.75;
+    }
 }
 
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
 @media(max-width:800px){
-    .wrapper{width:96%;padding-top:20px}
-    .stats{grid-template-columns:1fr}
-    .header{align-items:flex-start}
-    .live{display:none}
+
+    .wrapper{
+        width:96%;
+
+        padding-top:20px;
+    }
+
+    .stats{
+        grid-template-columns:1fr;
+    }
+
+    .header{
+        align-items:flex-start;
+    }
+
+    .live{
+        display:none;
+    }
+
+    .dice{
+        opacity:.45;
+        transform:scale(.75);
+    }
 }
 
 @media(max-width:500px){
-    .wrapper{width:94%}
-    h1{font-size:20px}
-    .subtitle{font-size:12px}
-    .logo{width:44px;height:44px;font-size:21px}
-    .stat{padding:15px 16px}
-    .stat-value{font-size:24px}
+
+    .wrapper{
+        width:94%;
+    }
+
+    h1{
+        font-size:19px;
+    }
+
+    .subtitle{
+        font-size:11px;
+    }
+
+    .logo{
+        width:46px;
+        height:46px;
+
+        font-size:22px;
+    }
+
+    .stat{
+        padding:
+            15px
+            16px;
+    }
+
+    .stat-value{
+        font-size:24px;
+    }
+
+    .dice{
+        display:none;
+    }
 }
 </style>
 </head>
 
 <body>
+
+<!-- FLOATING DICE -->
+
+<div class="dice one">⚄</div>
+<div class="dice two">⚂</div>
+<div class="dice three">⚅</div>
+<div class="dice four">⚁</div>
+
+<!-- PARTICLES -->
+
+<div class="particles" id="particles"></div>
+
 <div class="wrapper">
 
+    <!-- HEADER -->
+
     <div class="header">
+
         <div class="brand">
+
             <div class="logo"></div>
+
             <div>
-                <h1>KYOSH ANIME DICE MONITOR</h1>
-                <div class="subtitle">Live Anime Dice account and inventory monitor</div>
+
+                <h1>
+                    KYOSH ANIME DICE MONITOR
+                </h1>
+
+                <div class="subtitle">
+                    Live Anime Dice account & inventory monitor
+                </div>
+
             </div>
+
         </div>
 
         <div class="live">
+
             <span class="live-dot"></span>
+
             LIVE MONITOR
+
         </div>
+
     </div>
+
+
+    <!-- STATS -->
 
     <div class="stats">
-        <div class="stat">
-            <div class="stat-label">ONLINE</div>
-            <div class="stat-value" id="online">0</div>
-        </div>
 
         <div class="stat">
-            <div class="stat-label">OFFLINE</div>
-            <div class="stat-value" id="offline">0</div>
+
+            <div class="stat-label">
+                ONLINE
+            </div>
+
+            <div
+                class="stat-value"
+                id="online"
+            >
+                0
+            </div>
+
         </div>
 
+
         <div class="stat">
-            <div class="stat-label">TOTAL ACCOUNTS</div>
-            <div class="stat-value" id="total">0</div>
+
+            <div class="stat-label">
+                OFFLINE
+            </div>
+
+            <div
+                class="stat-value"
+                id="offline"
+            >
+                0
+            </div>
+
         </div>
+
+
+        <div class="stat">
+
+            <div class="stat-label">
+                TOTAL ACCOUNTS
+            </div>
+
+            <div
+                class="stat-value"
+                id="total"
+            >
+                0
+            </div>
+
+        </div>
+
     </div>
+
+
+    <!-- ACCOUNT TABLE -->
 
     <div class="table">
+
         <div class="table-scroll">
+
             <div class="table-head">
-                <div>ACCOUNT</div>
-                <div>STATUS</div>
-                <div>INVENTORY</div>
-                <div>LAST SEEN</div>
+
+                <div>
+                    ACCOUNT
+                </div>
+
+                <div>
+                    STATUS
+                </div>
+
+                <div>
+                    INVENTORY
+                </div>
+
+                <div>
+                    LAST SEEN
+                </div>
+
             </div>
+
 
             <div id="accounts">
-                <div class="empty">Loading accounts...</div>
+
+                <div class="empty">
+                    Loading accounts...
+                </div>
+
             </div>
+
         </div>
+
 
         <div class="footer">
-            Auto-refreshing every 2 seconds • KYOSH Anime Dice Monitor
+
+            ✦ Auto-refreshing every 2 seconds
+            •
+            KYOSH Anime Dice Monitor
+            ✦
+
         </div>
+
     </div>
 
-    <div class="modal" id="inventoryModal">
-        <div class="modal-card" onclick="event.stopPropagation()">
+
+    <!-- INVENTORY MODAL -->
+
+    <div
+        class="modal"
+        id="inventoryModal"
+    >
+
+        <div
+            class="modal-card"
+            onclick="event.stopPropagation()"
+        >
+
             <div class="modal-head">
+
                 <div>
-                    <div class="modal-title" id="modalTitle">Inventory</div>
-                    <div class="modal-subtitle" id="modalSubtitle"></div>
+
+                    <div
+                        class="modal-title"
+                        id="modalTitle"
+                    >
+                        Inventory
+                    </div>
+
+                    <div
+                        class="modal-subtitle"
+                        id="modalSubtitle"
+                    ></div>
+
                 </div>
-                <button class="modal-close" onclick="closeInventory()">×</button>
+
+
+                <button
+                    class="modal-close"
+                    onclick="closeInventory()"
+                >
+                    ×
+                </button>
+
             </div>
 
-            <div class="inventory-list" id="inventoryList"></div>
+
+            <div
+                class="inventory-list"
+                id="inventoryList"
+            ></div>
+
         </div>
+
     </div>
 
 </div>
 
+
 <script>
+
+/* =========================================================
+   PARTICLES
+   ========================================================= */
+
+const particleContainer =
+    document.getElementById("particles");
+
+for(let i = 0; i < 45; i++){
+
+    const particle =
+        document.createElement("div");
+
+    particle.className =
+        "particle";
+
+    particle.style.left =
+        Math.random() * 100 + "%";
+
+    particle.style.setProperty(
+        "--duration",
+        (8 + Math.random() * 14) + "s"
+    );
+
+    particle.style.animationDelay =
+        (-Math.random() * 15) + "s";
+
+    particle.style.opacity =
+        Math.random() * .7;
+
+    particleContainer.appendChild(
+        particle
+    );
+}
+
+
+/* =========================================================
+   ESCAPE HTML
+   ========================================================= */
+
 function esc(value){
+
     return String(value ?? "")
         .replaceAll("&","&amp;")
         .replaceAll("<","&lt;")
@@ -914,219 +1906,513 @@ function esc(value){
         .replaceAll("'","&#039;");
 }
 
+
+/* =========================================================
+   ACCOUNT CACHE
+   ========================================================= */
+
 const accountCache = {};
 
+
+/* =========================================================
+   INVENTORY
+   ========================================================= */
+
 function getInventory(account){
-    const inv = account.inventory || {};
+
+    const inv =
+        account.inventory || {};
 
     return {
-        units: Array.isArray(inv.units) ? inv.units : [],
-        gear: Array.isArray(inv.gear) ? inv.gear : [],
-        items: Array.isArray(inv.items) ? inv.items : []
+
+        units:
+            Array.isArray(inv.units)
+                ? inv.units
+                : [],
+
+        gear:
+            Array.isArray(inv.gear)
+                ? inv.gear
+                : [],
+
+        items:
+            Array.isArray(inv.items)
+                ? inv.items
+                : []
+
     };
 }
 
+
 function getAmount(item){
-    const amount = Number(item?.amount ?? item?.quantity ?? 1);
+
+    const amount =
+        Number(
+            item?.amount ??
+            item?.quantity ??
+            1
+        );
 
     if(!Number.isFinite(amount)){
         return 1;
     }
 
-    return Math.max(0, amount);
+    return Math.max(
+        0,
+        amount
+    );
 }
+
 
 function formatAmount(value){
-    return Number(value || 0).toLocaleString();
+
+    return Number(
+        value || 0
+    ).toLocaleString();
+
 }
 
+
+/* =========================================================
+   INVENTORY DETAILS
+   ========================================================= */
+
 function unitDetails(item){
+
     const details = [];
 
     if(item.rarity){
-        details.push("Rarity: " + esc(item.rarity));
+        details.push(
+            "Rarity: " +
+            esc(item.rarity)
+        );
     }
 
     if(item.level){
-        details.push("Level: " + esc(item.level));
+        details.push(
+            "Level: " +
+            esc(item.level)
+        );
     }
 
     if(item.income){
-        details.push("Income: " + esc(item.income));
+        details.push(
+            "Income: " +
+            esc(item.income)
+        );
     }
 
     if(item.chance){
-        details.push("Chance: " + esc(item.chance));
+        details.push(
+            "Chance: " +
+            esc(item.chance)
+        );
     }
 
     if(item.grade){
-        details.push("Grade: " + esc(item.grade));
+        details.push(
+            "Grade: " +
+            esc(item.grade)
+        );
     }
 
     if(item.trait){
-        details.push("Trait: " + esc(item.trait));
+        details.push(
+            "Trait: " +
+            esc(item.trait)
+        );
     }
 
-    return details.join(" • ") || "Unit";
+    return (
+        details.join(" • ") ||
+        "Unit"
+    );
 }
 
+
 function gearDetails(item){
-    const a = item.attributes || {};
+
+    const a =
+        item.attributes || {};
+
     const details = [];
 
     if(item.slot){
-        details.push("Slot: " + esc(item.slot));
+        details.push(
+            "Slot: " +
+            esc(item.slot)
+        );
     }
 
     if(a.slot){
-        details.push("Slot: " + esc(a.slot));
+        details.push(
+            "Slot: " +
+            esc(a.slot)
+        );
     }
 
     if(item.rarity){
-        details.push("Rarity: " + esc(item.rarity));
+        details.push(
+            "Rarity: " +
+            esc(item.rarity)
+        );
     }
 
-    return details.join(" • ") || "Gear";
+    return (
+        details.join(" • ") ||
+        "Gear"
+    );
 }
 
+
 function itemDetails(item){
+
     const details = [];
 
     if(item.category){
-        details.push(esc(item.category));
+        details.push(
+            esc(item.category)
+        );
     }
 
     if(item.rarity){
-        details.push("Rarity: " + esc(item.rarity));
+        details.push(
+            "Rarity: " +
+            esc(item.rarity)
+        );
     }
 
     if(item.description){
-        details.push(esc(item.description));
+        details.push(
+            esc(item.description)
+        );
     }
 
-    return details.join(" • ") || "Item";
+    return (
+        details.join(" • ") ||
+        "Item"
+    );
 }
 
+
+/* =========================================================
+   INVENTORY PREVIEW
+   ========================================================= */
+
 function inventoryPreview(account){
-    const inv = getInventory(account);
+
+    const inv =
+        getInventory(account);
 
     const names = [
-        ...inv.units.slice(0,1).map(x => "Unit: " + (x.name || "Unknown")),
-        ...inv.gear.slice(0,1).map(x => "Gear: " + (x.name || "Unknown")),
-        ...inv.items.slice(0,1).map(x => "Item: " + (x.name || "Unknown"))
+
+        ...inv.units
+            .slice(0,1)
+            .map(
+                x =>
+                    "Unit: " +
+                    (x.name || "Unknown")
+            ),
+
+        ...inv.gear
+            .slice(0,1)
+            .map(
+                x =>
+                    "Gear: " +
+                    (x.name || "Unknown")
+            ),
+
+        ...inv.items
+            .slice(0,1)
+            .map(
+                x =>
+                    "Item: " +
+                    (x.name || "Unknown")
+            )
+
     ];
 
     if(!names.length){
+
         return "No inventory items";
+
     }
 
     return names.join(" • ");
 }
 
-function renderAccounts(data){
-    const root = document.getElementById("accounts");
 
-    document.getElementById("online").textContent = data.online;
-    document.getElementById("offline").textContent = data.offline;
-    document.getElementById("total").textContent = data.total;
+/* =========================================================
+   RENDER ACCOUNTS
+   ========================================================= */
+
+function renderAccounts(data){
+
+    const root =
+        document.getElementById(
+            "accounts"
+        );
+
+    document.getElementById(
+        "online"
+    ).textContent =
+        data.online;
+
+    document.getElementById(
+        "offline"
+    ).textContent =
+        data.offline;
+
+    document.getElementById(
+        "total"
+    ).textContent =
+        data.total;
+
 
     if(!data.accounts.length){
+
         root.innerHTML =
-            '<div class="empty">No accounts have sent a heartbeat yet.</div>';
+            '<div class="empty">' +
+            'No accounts have sent a heartbeat yet.' +
+            '</div>';
+
         return;
     }
 
-    root.innerHTML = data.accounts.map(account => {
-        const online = account.online;
-        const name = account.playerName || account.userId || "?";
 
-        const initial = esc(
-            String(name).charAt(0).toUpperCase()
-        );
+    root.innerHTML =
+        data.accounts.map(
+            account => {
 
-        const inv = getInventory(account);
+                const online =
+                    account.online;
 
-        accountCache[String(account.userId)] = account;
+                const name =
+                    account.playerName ||
+                    account.userId ||
+                    "?";
 
-        return `
-        <div class="account">
-            <div class="user">
-                <div class="avatar">${initial}</div>
-                <div>
-                    <div class="username">${esc(name)}</div>
-                    <div class="userid">
-                        ID ${esc(account.userId || "—")}
+
+                const initial =
+                    esc(
+                        String(name)
+                            .charAt(0)
+                            .toUpperCase()
+                    );
+
+
+                const inv =
+                    getInventory(account);
+
+
+                accountCache[
+                    String(account.userId)
+                ] = account;
+
+
+                return `
+
+                <div class="account">
+
+                    <div class="user">
+
+                        <div class="avatar">
+                            ${initial}
+                        </div>
+
+                        <div>
+
+                            <div class="username">
+                                ${esc(name)}
+                            </div>
+
+                            <div class="userid">
+                                ID
+                                ${esc(
+                                    account.userId ||
+                                    "—"
+                                )}
+                            </div>
+
+                        </div>
+
                     </div>
+
+
+                    <div
+                        class="${online
+                            ? "online"
+                            : "offline"}"
+                    >
+
+                        <span class="status">
+
+                            <span
+                                class="status-dot"
+                            ></span>
+
+                            ${online
+                                ? "Online"
+                                : "Offline"}
+
+                        </span>
+
+                    </div>
+
+
+                    <div>
+
+                        <button
+                            class="inventory-btn"
+                            data-userid="${esc(
+                                account.userId || ""
+                            )}"
+                            onclick="openInventory(
+                                this.dataset.userid
+                            )"
+                        >
+
+                            <div
+                                class="inventory-summary"
+                            >
+
+                                <span
+                                    class="category-pill units"
+                                >
+                                    Units
+                                    ${formatAmount(
+                                        inv.units.length
+                                    )}
+                                </span>
+
+                                <span
+                                    class="category-pill gear"
+                                >
+                                    Gear
+                                    ${formatAmount(
+                                        inv.gear.length
+                                    )}
+                                </span>
+
+                                <span
+                                    class="category-pill items"
+                                >
+                                    Items
+                                    ${formatAmount(
+                                        inv.items.length
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div
+                                class="inventory-preview"
+                            >
+                                ${esc(
+                                    inventoryPreview(
+                                        account
+                                    )
+                                )}
+                            </div>
+
+                        </button>
+
+                    </div>
+
+
+                    <div class="age">
+
+                        ${esc(
+                            account.lastSeenText ||
+                            "—"
+                        )}
+
+                    </div>
+
                 </div>
-            </div>
 
-            <div class="${online ? "online" : "offline"}">
-                <span class="status">
-                    <span class="status-dot"></span>
-                    ${online ? "Online" : "Offline"}
-                </span>
-            </div>
+                `;
 
-            <div>
-                <button
-                    class="inventory-btn"
-                    data-userid="${esc(account.userId || "")}"
-                    onclick="openInventory(this.dataset.userid)"
-                >
-                    <div class="inventory-summary">
-                        <span class="category-pill units">
-                            Units ${formatAmount(inv.units.length)}
-                        </span>
+            }
+        ).join("");
 
-                        <span class="category-pill gear">
-                            Gear ${formatAmount(inv.gear.length)}
-                        </span>
-
-                        <span class="category-pill items">
-                            Items ${formatAmount(inv.items.length)}
-                        </span>
-                    </div>
-
-                    <div class="inventory-preview">
-                        ${esc(inventoryPreview(account))}
-                    </div>
-                </button>
-            </div>
-
-            <div class="age">
-                ${esc(account.lastSeenText || "—")}
-            </div>
-        </div>`;
-    }).join("");
 }
 
-function renderSection(title, className, items, detailFunction){
+
+/* =========================================================
+   INVENTORY SECTION
+   ========================================================= */
+
+function renderSection(
+    title,
+    className,
+    items,
+    detailFunction
+){
+
     if(!items.length){
+
         return `
+
             <div class="section">
-                <div class="section-title ${className}">
-                    ${title} <span style="opacity:.5">(0)</span>
+
+                <div
+                    class="section-title ${className}"
+                >
+                    ${title}
+                    <span style="opacity:.5">
+                        (0)
+                    </span>
                 </div>
-                <div class="item-meta" style="padding:14px">
-                    No ${title.toLowerCase()} reported.
+
+                <div
+                    class="item-meta"
+                    style="padding:14px"
+                >
+                    No
+                    ${title.toLowerCase()}
+                    reported.
                 </div>
+
             </div>
+
         `;
     }
 
+
     return `
+
         <div class="section">
-            <div class="section-title ${className}">
-                ${title} <span style="opacity:.5">(${items.length})</span>
+
+            <div
+                class="section-title ${className}"
+            >
+                ${title}
+
+                <span style="opacity:.5">
+                    (${items.length})
+                </span>
+
             </div>
 
+
             ${items.map(item => {
-                const amount = getAmount(item);
-                const name = item.name || "Unknown";
+
+                const amount =
+                    getAmount(item);
+
+                const name =
+                    item.name ||
+                    "Unknown";
+
 
                 return `
+
                 <div class="inventory-item">
+
                     <div>
+
                         <div class="item-name">
                             ${esc(name)}
                         </div>
@@ -1134,40 +2420,83 @@ function renderSection(title, className, items, detailFunction){
                         <div class="item-meta">
                             ${detailFunction(item)}
                         </div>
+
                     </div>
+
 
                     <div class="item-amount">
+
                         ×${formatAmount(amount)}
+
                     </div>
 
+
                     <div class="item-details">
+
                         ${detailFunction(item)}
+
                     </div>
+
                 </div>
+
                 `;
+
             }).join("")}
+
         </div>
+
     `;
 }
 
+
+/* =========================================================
+   OPEN INVENTORY
+   ========================================================= */
+
 function openInventory(userId){
-    const account = accountCache[String(userId)];
 
-    if(!account) return;
+    const account =
+        accountCache[
+            String(userId)
+        ];
 
-    const inv = getInventory(account);
+    if(!account){
+        return;
+    }
 
-    const unitCount = inv.units.length;
-    const gearCount = inv.gear.length;
-    const itemCount = inv.items.length;
 
-    document.getElementById("modalTitle").textContent =
-        `${account.playerName || account.userId} Inventory`;
+    const inv =
+        getInventory(account);
 
-    document.getElementById("modalSubtitle").textContent =
-        `${unitCount} Units • ${gearCount} Gear • ${itemCount} Items`;
+
+    const unitCount =
+        inv.units.length;
+
+    const gearCount =
+        inv.gear.length;
+
+    const itemCount =
+        inv.items.length;
+
+
+    document.getElementById(
+        "modalTitle"
+    ).textContent =
+        `${account.playerName ||
+            account.userId}
+         Inventory`;
+
+
+    document.getElementById(
+        "modalSubtitle"
+    ).textContent =
+        `${unitCount} Units •
+         ${gearCount} Gear •
+         ${itemCount} Items`;
+
 
     let html = "";
+
 
     html += renderSection(
         "Units",
@@ -1176,12 +2505,14 @@ function openInventory(userId){
         unitDetails
     );
 
+
     html += renderSection(
         "Gear",
         "gear",
         inv.gear,
         gearDetails
     );
+
 
     html += renderSection(
         "Items",
@@ -1190,47 +2521,116 @@ function openInventory(userId){
         itemDetails
     );
 
-    document.getElementById("inventoryList").innerHTML = html;
-    document.getElementById("inventoryModal").classList.add("open");
+
+    document.getElementById(
+        "inventoryList"
+    ).innerHTML =
+        html;
+
+
+    document.getElementById(
+        "inventoryModal"
+    ).classList.add("open");
+
 }
+
+
+/* =========================================================
+   CLOSE INVENTORY
+   ========================================================= */
 
 function closeInventory(){
-    document.getElementById("inventoryModal").classList.remove("open");
+
+    document.getElementById(
+        "inventoryModal"
+    ).classList.remove("open");
+
 }
 
-document.getElementById("inventoryModal")
-    .addEventListener("click", closeInventory);
 
-document.addEventListener("keydown", event => {
-    if(event.key === "Escape"){
-        closeInventory();
-    }
-});
+document.getElementById(
+    "inventoryModal"
+).addEventListener(
+    "click",
+    closeInventory
+);
 
-async function refresh(){
-    try{
-        const response = await fetch("/api/accounts", {
-            cache:"no-store"
-        });
 
-        if(!response.ok){
-            throw new Error("Request failed");
+document.addEventListener(
+    "keydown",
+    event => {
+
+        if(event.key === "Escape"){
+
+            closeInventory();
+
         }
 
-        const data = await response.json();
+    }
+);
+
+
+/* =========================================================
+   REFRESH
+   ========================================================= */
+
+async function refresh(){
+
+    try{
+
+        const response =
+            await fetch(
+                "/api/accounts",
+                {
+                    cache:"no-store"
+                }
+            );
+
+
+        if(!response.ok){
+
+            throw new Error(
+                "Request failed"
+            );
+
+        }
+
+
+        const data =
+            await response.json();
+
+
         renderAccounts(data);
 
-    }catch(error){
-        document.getElementById("accounts").innerHTML =
-            '<div class="empty">Unable to load account data.</div>';
     }
+
+    catch(error){
+
+        document.getElementById(
+            "accounts"
+        ).innerHTML =
+
+            '<div class="empty">' +
+            'Unable to load account data.' +
+            '</div>';
+
+    }
+
 }
 
+
 refresh();
-setInterval(refresh, 2000);
+
+setInterval(
+    refresh,
+    2000
+);
+
 </script>
+
 </body>
 </html>"""
+
 
 
 # ============================================================
